@@ -279,7 +279,7 @@ body,
 }
 
 .hermes-assistant-panel h2 {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -516,9 +516,10 @@ body,
 }
 
 .assistant-empty-state h3 {
-  font-size: 18px;
+  max-width: 340px;
+  font-size: 21px;
   font-weight: 600;
-  line-height: 1.55;
+  line-height: 1.48;
   letter-spacing: -0.02em;
   text-wrap: balance;
 }
@@ -688,7 +689,7 @@ body,
   outline: 0;
   color: var(--tale-ink);
   background: transparent;
-  font: 13px/1.5 var(--tale-font);
+  font: 14px/1.5 var(--tale-font);
 }
 
 .assistant-composer textarea::placeholder {
@@ -724,9 +725,9 @@ body,
 .assistant-mascot {
   position: relative;
   display: block;
-  width: 112px;
-  height: 112px;
-  margin-bottom: 20px;
+  width: 144px;
+  height: 144px;
+  margin-bottom: 24px;
   animation: assistant-mascot-float 4.8s ease-in-out infinite;
 }
 
