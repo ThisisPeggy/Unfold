@@ -16,13 +16,15 @@ import {
 } from "../src/story.js";
 
 test("chooses a doodle and places it beside linked elements", () => {
-  assert.equal(STORY_ICON_KINDS.length, 7);
+  assert.deepEqual(STORY_ICON_KINDS.slice(0, 3), ["camera", "page", "link"]);
   assert.equal(storyIconKind("https://instagram.com/example"), "instagram");
   assert.equal(storyIconKind("https://linkedin.com/in/example"), "linkedin");
   assert.equal(storyIconKind("https://youtube.com/@example"), "youtube");
   assert.equal(storyIconKind("https://github.com/example/project"), "github");
   assert.equal(storyIconKind("https://x.com/example"), "x");
   assert.equal(storyIconKind("https://wa.me/123"), "whatsapp");
+  assert.equal(storyIconKind("https://example.com/photos"), "camera");
+  assert.equal(storyIconKind("https://example.com/resume"), "page");
   assert.equal(storyIconKind("https://example.com/work"), "link");
   assert.equal(safeStoryHref("javascript:alert(1)"), null);
   assert.equal(safeStoryHref("https://example.com/work"), "https://example.com/work");
@@ -31,7 +33,7 @@ test("chooses a doodle and places it beside linked elements", () => {
   assert.equal(getStoryHref(linked), "https://example.com/work");
   linked.customData.storyIcon = "camera";
   linked.customData.storyIconSide = "right";
-  assert.equal(getStoryIconKind(linked), "instagram");
+  assert.equal(getStoryIconKind(linked), "camera");
   assert.equal(storyLinkGeometry({ ...linked, x: 100, width: 80, height: 24, fontSize: 20 }).iconX, 185);
   assert.notEqual(
     editorLinkSignature([linked], { zoom: { value: 1 } }),

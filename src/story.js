@@ -1,8 +1,14 @@
-export const STORY_ICON_KINDS = ["instagram", "linkedin", "youtube", "x", "github", "whatsapp", "link"];
+export const STORY_ICON_KINDS = [
+  "camera", "page", "link",
+  "instagram", "linkedin", "youtube",
+  "x", "github", "whatsapp",
+];
 
 export function storyIconKind(href = "") {
   const link = href.toLowerCase();
-  if (/instagram\.com|photos|unsplash/.test(link)) return "instagram";
+  if (/instagram\.com/.test(link)) return "instagram";
+  if (/photos|unsplash/.test(link)) return "camera";
+  if (/resume|curriculum-vitae|(^|\/)cv(?:[/.?#]|$)/.test(link)) return "page";
   if (/linkedin\.com/.test(link)) return "linkedin";
   if (/youtube\.com|youtu\.be/.test(link)) return "youtube";
   if (/twitter\.com|(^|\/)x\.com/.test(link)) return "x";
@@ -14,8 +20,7 @@ export function storyIconKind(href = "") {
 export function getStoryIconKind(element) {
   const saved = element?.customData?.storyIcon;
   const migrated = {
-    camera: "instagram", globe: "linkedin", code: "github",
-    page: "link", spark: "link", mail: "link",
+    globe: "link", code: "github", spark: "link", mail: "link",
   }[saved] ?? saved;
   return STORY_ICON_KINDS.includes(migrated)
     ? migrated
