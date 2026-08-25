@@ -501,7 +501,7 @@ body,
   align-items: center;
   justify-content: flex-start;
   flex-direction: column;
-  padding: clamp(96px, 18vh, 160px) 24px 24px;
+  padding: clamp(56px, 10vh, 96px) 24px 24px;
   text-align: center;
 }
 
