@@ -1,15 +1,15 @@
 {
-  "name": "inkpath",
+  "name": "tale",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "^0.18.1",
+    "@excalidraw/excalidraw": "0.18.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^8.2.2"

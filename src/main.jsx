@@ -13,13 +13,26 @@ import {
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import "./styles.css";
+import AssistantMascot from "./AssistantMascot.jsx";
 import { decodeScene, encodeScene, readScene, writeScene } from "./storage.js";
 import {
+  clearHermesConnection,
+  createHermesConnection,
+  hermesConnectorSetupCommand,
+  readHermesConnection,
+  requestHermesLecturePlan,
+  saveHermesConnection,
+  testHermesConnection,
+} from "./hermes.js";
+import {
   STORY_ICON_KINDS,
+  createGeneratedLecture,
   editorLinkSignature,
-  getStoryHighlight,
   getStoryIconKind,
   getStoryHref,
+  getStorySteps,
+  makeStoryPath,
+  polishStarterElement,
   safeStoryHref,
   stashStoryLinks,
   storyIconKind,
@@ -29,19 +42,24 @@ import {
 const STORAGE_KEY = "story-canvas.scene.v1";
 const PAPER = "#ffffff";
 const STORY_PADDING = 32;
-const HIGHLIGHTS = ["#3b72c4", "#2f8f5b", "#b8751a"];
+const HIGHLIGHTS = ["#337ea9", "#448361", "#9f6b53"];
+const HIGHLIGHT_WIDTHS = [12, 20, 32];
 const STORY_ICON_LABELS = {
-  camera: "照片",
-  page: "页面",
-  spark: "灵感",
-  globe: "网站",
-  mail: "邮件",
-  code: "代码",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
+  youtube: "YouTube",
+  x: "X",
+  github: "GitHub",
+  whatsapp: "WhatsApp",
+  link: "通用链接",
 };
 const LEGACY_COLORS = {
-  "#4f7fd8": "#3b72c4",
-  "#4f9a73": "#2f8f5b",
-  "#c47a2c": "#b8751a",
+  "#4f7fd8": "#337ea9",
+  "#3b72c4": "#337ea9",
+  "#4f9a73": "#448361",
+  "#2f8f5b": "#448361",
+  "#c47a2c": "#9f6b53",
+  "#b8751a": "#9f6b53",
 };
 
 function starterScene() {
@@ -49,21 +67,21 @@ function starterScene() {
     elements: convertToExcalidrawElements([
       {
         type: "text",
-        x: 410,
+        x: 418,
         y: 300,
         text: "你好，我是你的名字。",
         fontFamily: FONT_FAMILY.Helvetica,
-        fontSize: 24,
-        strokeColor: "#25231f",
+        fontSize: 22,
+        strokeColor: "#4a4843",
       },
       {
         type: "text",
-        x: 360,
+        x: 370,
         y: 344,
         text: "我做产品，也把故事画出来。",
         fontFamily: FONT_FAMILY.Helvetica,
-        fontSize: 20,
-        strokeColor: "#25231f",
+        fontSize: 18,
+        strokeColor: "#4a4843",
       },
       {
         type: "text",
@@ -72,7 +90,7 @@ function starterScene() {
         text: "作品与想法",
         fontFamily: FONT_FAMILY.Excalifont,
         fontSize: 22,
-        strokeColor: "#3b72c4",
+        strokeColor: "#337ea9",
         link: "https://example.com/work",
       },
       {
@@ -80,45 +98,45 @@ function starterScene() {
         x: 485,
         y: 215,
         points: [[0, 0], [0, 54]],
-        strokeColor: "#3b72c4",
+        strokeColor: "#337ea9",
         endArrowhead: "arrow",
         roughness: 1,
       },
       {
         type: "text",
-        x: 700,
+        x: 724,
         y: 330,
         text: "照片与生活",
         fontFamily: FONT_FAMILY.Excalifont,
         fontSize: 22,
-        strokeColor: "#2f8f5b",
+        strokeColor: "#448361",
         link: "https://example.com/photos",
       },
       {
         type: "arrow",
-        x: 680,
+        x: 704,
         y: 344,
         points: [[0, 0], [-72, 0]],
-        strokeColor: "#2f8f5b",
+        strokeColor: "#448361",
         endArrowhead: "arrow",
         roughness: 1,
       },
       {
         type: "text",
-        x: 260,
+        x: 275,
         y: 450,
         text: "经历与简历",
         fontFamily: FONT_FAMILY.Excalifont,
         fontSize: 22,
-        strokeColor: "#b8751a",
+        strokeColor: "#9f6b53",
         link: "https://example.com/resume",
       },
       {
         type: "arrow",
-        x: 365,
-        y: 438,
-        points: [[0, 0], [38, -52]],
-        strokeColor: "#b8751a",
+        x: 375,
+        y: 430,
+        points: [[0, 0], [38, -44]],
+        strokeColor: "#9f6b53",
         endArrowhead: "arrow",
         roughness: 1,
       },
@@ -133,9 +151,11 @@ function withoutNativeLinks(scene) {
   return {
     ...scene,
     elements: stashStoryLinks(scene.elements).map((element) =>
-      LEGACY_COLORS[element.strokeColor]
-        ? { ...element, strokeColor: LEGACY_COLORS[element.strokeColor] }
-        : element,
+      polishStarterElement(
+        LEGACY_COLORS[element.strokeColor]
+          ? { ...element, strokeColor: LEGACY_COLORS[element.strokeColor] }
+          : element,
+      ),
     ),
     appState: { ...scene.appState, viewBackgroundColor: PAPER },
   };
@@ -151,7 +171,64 @@ function EyeIcon({ crossed = false }) {
   );
 }
 
-function HighlighterTool({ active, color, onToggle, onColor, target }) {
+function ChevronIcon({ direction }) {
+  const paths = {
+    left: "m15 18-6-6 6-6",
+    right: "m9 6 6 6-6 6",
+    up: "m6 15 6-6 6 6",
+    down: "m6 9 6 6 6-6",
+  };
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d={paths[direction]} />
+    </svg>
+  );
+}
+
+function PathIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="5" cy="6" r="1" />
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="5" cy="18" r="1" />
+      <path d="M9 6h10M9 12h10M9 18h10" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="m5 12 14-7-4 14-3-5-7-2Z" />
+      <path d="m12 14 3-3" />
+    </svg>
+  );
+}
+
+function storyElementLabel(element) {
+  const text = element?.text?.trim().replace(/\s+/g, " ");
+  if (text) return text;
+  if ((element?.storyElementIds?.length ?? 0) > 1) {
+    return `${element.storyElementIds.length} 个元素`;
+  }
+  return {
+    image: "图片",
+    rectangle: "矩形",
+    ellipse: "椭圆",
+    diamond: "菱形",
+    arrow: "箭头",
+    line: "线条",
+    freedraw: "手绘",
+    frame: "画框",
+    embeddable: "嵌入内容",
+  }[element?.type] ?? "画面";
+}
+
+function storyStepLabel(element) {
+  return element?.storyTitle?.trim() || storyElementLabel(element);
+}
+
+function HighlighterTool({ active, color, onToggle, onColor, onWidth, target, width }) {
   if (!target) return null;
   return createPortal(
     <div className="highlighter-control">
@@ -162,7 +239,7 @@ function HighlighterTool({ active, color, onToggle, onColor, target }) {
         aria-label={active ? "关闭高亮笔" : "使用高亮笔"}
         aria-pressed={active}
         aria-expanded={active}
-        aria-controls="highlighter-colors"
+        aria-controls="highlighter-options"
         onClick={onToggle}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -172,20 +249,37 @@ function HighlighterTool({ active, color, onToggle, onColor, target }) {
         <span className="highlighter-tool__ink" aria-hidden="true" />
       </button>
       {active && (
-        <div id="highlighter-colors" className="highlighter-colors" role="radiogroup" aria-label="高亮颜色">
-          {HIGHLIGHTS.map((value, index) => (
-            <button
-              key={value}
-              className="highlighter-color"
-              type="button"
-              role="radio"
-              aria-checked={color === value}
-              aria-label={["蓝色", "绿色", "琥珀色"][index]}
-              onClick={() => onColor(value)}
-            >
-              <span style={{ background: value }} />
-            </button>
-          ))}
+        <div id="highlighter-options" className="highlighter-colors">
+          <div className="highlighter-options-row" role="radiogroup" aria-label="高亮颜色">
+            {HIGHLIGHTS.map((value, index) => (
+              <button
+                key={value}
+                className="highlighter-color"
+                type="button"
+                role="radio"
+                aria-checked={color === value}
+                aria-label={["蓝色", "绿色", "琥珀色"][index]}
+                onClick={() => onColor(value)}
+              >
+                <span style={{ background: value }} />
+              </button>
+            ))}
+          </div>
+          <div className="highlighter-options-row" role="radiogroup" aria-label="高亮粗细">
+            {HIGHLIGHT_WIDTHS.map((value, index) => (
+              <button
+                key={value}
+                className="highlighter-width"
+                type="button"
+                role="radio"
+                aria-checked={width === value}
+                aria-label={["细", "中", "粗"][index]}
+                onClick={() => onWidth(value)}
+              >
+                <span style={{ height: Math.max(3, value / 3) }} />
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>,
@@ -196,123 +290,41 @@ function HighlighterTool({ active, color, onToggle, onColor, target }) {
 function LinkDoodle({ kind, x, y, size }) {
   const common = {
     className: "story-link-icon",
+    x,
+    y,
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
     strokeLinecap: "round",
     strokeLinejoin: "round",
-    strokeWidth: Math.max(1.4, size * 0.075),
+    strokeWidth: 1.8,
   };
-
-  if (kind === "camera") {
-    return (
-      <g transform={`translate(${x} ${y})`}>
-        <g {...common}>
-          <path d={`M ${size * 0.14} ${size * 0.32} h ${size * 0.2} l ${size * 0.1} -${size * 0.13} h ${size * 0.28} l ${size * 0.1} ${size * 0.13} h ${size * 0.12} v ${size * 0.5} h -${size * 0.8} z`} />
-          <circle cx={size * 0.54} cy={size * 0.57} r={size * 0.16} />
-          <g className="story-camera-flash">
-            <path d={`M ${size * 0.84} ${size * 0.06} v ${size * 0.13}`} />
-            <path d={`M ${size * 0.94} ${size * 0.15} l ${size * 0.08} -${size * 0.08}`} />
-          </g>
-        </g>
-      </g>
-    );
-  }
-
-  if (kind === "page") {
-    return (
-      <g transform={`translate(${x} ${y})`}>
-        <g {...common}>
-          <path d={`M ${size * 0.25} ${size * 0.1} h ${size * 0.42} l ${size * 0.18} ${size * 0.18} v ${size * 0.62} h -${size * 0.6} z`} />
-          <path d={`M ${size * 0.67} ${size * 0.1} v ${size * 0.2} h ${size * 0.18}`} />
-          <path d={`M ${size * 0.38} ${size * 0.48} h ${size * 0.32} M ${size * 0.38} ${size * 0.65} h ${size * 0.24}`} />
-        </g>
-      </g>
-    );
-  }
-
-  if (kind === "globe") {
-    return (
-      <g transform={`translate(${x} ${y})`}>
-        <g {...common}>
-          <circle cx={size * 0.5} cy={size * 0.5} r={size * 0.36} />
-          <path d={`M ${size * 0.14} ${size * 0.5} h ${size * 0.72}`} />
-          <path d={`M ${size * 0.5} ${size * 0.14} C ${size * 0.7} ${size * 0.3}, ${size * 0.7} ${size * 0.7}, ${size * 0.5} ${size * 0.86} C ${size * 0.3} ${size * 0.7}, ${size * 0.3} ${size * 0.3}, ${size * 0.5} ${size * 0.14}`} />
-        </g>
-      </g>
-    );
-  }
-
-  if (kind === "mail") {
-    return (
-      <g transform={`translate(${x} ${y})`}>
-        <g {...common}>
-          <path d={`M ${size * 0.14} ${size * 0.26} h ${size * 0.72} v ${size * 0.5} h -${size * 0.72} z`} />
-          <path d={`M ${size * 0.16} ${size * 0.3} l ${size * 0.34} ${size * 0.28} l ${size * 0.34} -${size * 0.28}`} />
-        </g>
-      </g>
-    );
-  }
-
-  if (kind === "code") {
-    return (
-      <g transform={`translate(${x} ${y})`}>
-        <g {...common}>
-          <path d={`M ${size * 0.38} ${size * 0.25} l -${size * 0.22} ${size * 0.25} l ${size * 0.22} ${size * 0.25}`} />
-          <path d={`M ${size * 0.62} ${size * 0.25} l ${size * 0.22} ${size * 0.25} l -${size * 0.22} ${size * 0.25}`} />
-          <path d={`M ${size * 0.57} ${size * 0.18} l -${size * 0.14} ${size * 0.64}`} />
-        </g>
-      </g>
-    );
-  }
-
-  return (
-    <g transform={`translate(${x} ${y})`}>
-      <g {...common}>
-        <path d={`M ${size * 0.16} ${size * 0.7} C ${size * 0.28} ${size * 0.15}, ${size * 0.72} ${size * 0.12}, ${size * 0.84} ${size * 0.48} C ${size * 0.92} ${size * 0.75}, ${size * 0.48} ${size * 0.92}, ${size * 0.16} ${size * 0.7} Z`} />
-        <path d={`M ${size * 0.5} ${size * 0.08} v ${size * 0.18} M ${size * 0.84} ${size * 0.18} l -${size * 0.12} ${size * 0.13}`} />
-      </g>
-    </g>
-  );
+  const paths = {
+    instagram: <><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".6" fill="currentColor" stroke="none" /></>,
+    linkedin: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 10v7M8 7v.01M12 17v-7m0 3.2c.7-2.7 5-2.9 5 1V17" /></>,
+    youtube: <><path d="M21 12c0 3.8-.5 5.4-1.2 6.1-.8.8-2.8 1-7.8 1s-7-.2-7.8-1C3.5 17.4 3 15.8 3 12s.5-5.4 1.2-6.1c.8-.8 2.8-1 7.8-1s7 .2 7.8 1c.7.7 1.2 2.3 1.2 6.1Z" /><path d="m10 9 5 3-5 3Z" /></>,
+    x: <><path d="m5 4 14 16M19 4 5 20" /></>,
+    github: <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.7-1.6 6.7-7A5.4 5.4 0 0 0 19.3 4 5 5 0 0 0 19.2.5S18.1.1 15 1.8a13.4 13.4 0 0 0-7 0C4.9.1 3.8.5 3.8.5A5 5 0 0 0 3.7 4a5.4 5.4 0 0 0-1.4 3.7c0 5.4 3.4 6.6 6.7 7A4.8 4.8 0 0 0 8 18v4M8 19c-3 .9-3-1.5-4.2-2" />,
+    whatsapp: <><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3 20.5l1.6-4.7a8.5 8.5 0 1 1 15.9-4.3Z" /><path d="M8.2 7.8c.5 3.5 2.5 5.5 6 6.1l1.2-1.3c.3-.3.6-.3.9-.2l2 .9" /></>,
+    link: <><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1" /></>,
+  };
+  return <svg {...common}>{paths[kind] ?? paths.link}</svg>;
 }
 
-function TextHighlight({ element }) {
-  const color = getStoryHighlight(element);
-  if (!color) return null;
-  const y = element.y + element.height * 0.74;
-  return (
-    <path
-      className="story-text-highlight"
-      d={`M ${element.x} ${y} C ${element.x + element.width * 0.28} ${y + 1}, ${element.x + element.width * 0.72} ${y - 1}, ${element.x + element.width} ${y}`}
-      stroke={color}
-      strokeWidth={Math.max(7, element.height * 0.42)}
-    />
-  );
-}
-
-function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink }) {
+function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSteps, storyPath }) {
   const zoom = appState?.zoom?.value ?? 1;
   const transform = `translate(${appState?.offsetLeft ?? 0} ${appState?.offsetTop ?? 0}) scale(${zoom}) translate(${appState?.scrollX ?? 0} ${appState?.scrollY ?? 0})`;
-  const textElements = elements.filter(
-    (element) => !element.isDeleted && element.type === "text",
+  const linkedElements = elements.filter(
+    (element) => !element.isDeleted && getStoryHref(element),
   );
-  const linkedElements = textElements.filter(getStoryHref);
+  const storySteps = getStorySteps(elements, storyPath);
 
   return (
     <>
       <svg className="editor-story-icons" aria-hidden="true">
         <g transform={transform}>
-          {textElements.map((element) => {
-            const centerX = element.x + element.width / 2;
-            const centerY = element.y + element.height / 2;
-            return (
-              <g
-                key={`${element.id}-highlight`}
-                transform={`rotate(${(element.angle * 180) / Math.PI} ${centerX} ${centerY})`}
-              >
-                <TextHighlight element={element} />
-              </g>
-            );
-          })}
           {linkedElements.map((element) => {
             const { size, iconX, iconY } = storyLinkGeometry(element);
             const centerX = element.x + element.width / 2;
@@ -329,6 +341,22 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink }) {
                   y={iconY}
                   size={size}
                 />
+              </g>
+            );
+          })}
+          {showSteps && storySteps.map((element, index) => {
+            const x = element.x + element.width / 2;
+            const y = element.y - 14;
+            const centerX = element.x + element.width / 2;
+            const centerY = element.y + element.height / 2;
+            return (
+              <g
+                key={`${element.id}-step`}
+                className="editor-story-step"
+                transform={`rotate(${(element.angle * 180) / Math.PI} ${centerX} ${centerY})`}
+              >
+                <circle cx={x} cy={y} r="10" />
+                <text x={x} y={y}>{index + 1}</text>
               </g>
             );
           })}
@@ -350,7 +378,7 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink }) {
               className="editor-link-button"
               type="button"
               style={{ left, top }}
-              aria-label={`设置链接：${element.text}`}
+              aria-label={`设置链接：${element.text || "图形"}`}
               aria-haspopup="dialog"
               aria-expanded={active}
               aria-controls={active ? "story-link-popover" : undefined}
@@ -360,6 +388,424 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink }) {
         })}
       </div>
     </>
+  );
+}
+
+function HermesAssistantPanel({
+  onApplyPlan,
+  onClose,
+  onConnectionChange,
+  onGeneratePlan,
+}) {
+  const [connection, setConnection] = useState(() => {
+    const saved = readHermesConnection();
+    return saved ?? saveHermesConnection(createHermesConnection());
+  });
+  const [connectionState, setConnectionState] = useState("checking");
+  const [copied, setCopied] = useState("");
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const composerRef = useRef(null);
+  const conversationRef = useRef(null);
+  const command = useMemo(() => hermesConnectorSetupCommand(), []);
+
+  useEffect(() => {
+    let active = true;
+    let timer;
+    const check = async () => {
+      setConnectionState((state) => state === "connected" ? state : "checking");
+      try {
+        await testHermesConnection(connection);
+        if (!active) return;
+        setConnectionState("connected");
+        onConnectionChange(true);
+        timer = window.setTimeout(check, 10_000);
+      } catch {
+        if (!active) return;
+        setConnectionState("waiting");
+        onConnectionChange(false);
+        timer = window.setTimeout(check, 2_000);
+      }
+    };
+    check();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [connection, onConnectionChange]);
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (connectionState === "connected") composerRef.current?.focus();
+  }, [connectionState]);
+
+  useEffect(() => {
+    conversationRef.current?.scrollTo({ top: conversationRef.current.scrollHeight });
+  }, [busy, messages]);
+
+  const copyValue = async (kind, value) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(kind);
+      window.setTimeout(() => setCopied(""), 1600);
+    } catch {
+      window.prompt("请复制", value);
+    }
+  };
+
+  const resetPairing = () => {
+    clearHermesConnection();
+    const next = saveHermesConnection(createHermesConnection());
+    setConnection(next);
+    setConnectionState("checking");
+    onConnectionChange(false);
+  };
+
+  const send = async (event) => {
+    event.preventDefault();
+    const prompt = input.trim();
+    if (!prompt || busy || connectionState !== "connected") return;
+    const id = crypto.randomUUID();
+    const previousGoals = messages
+      .filter((message) => message.role === "user")
+      .slice(-2)
+      .map((message) => message.text);
+    setMessages((value) => [...value, { id, role: "user", text: prompt }]);
+    setInput("");
+    setBusy(true);
+    try {
+      const goal = previousGoals.length
+        ? `此前要求：${previousGoals.join("；")}。本次要求：${prompt}`
+        : prompt;
+      const plan = await onGeneratePlan(goal);
+      setMessages((value) => [...value, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: plan.mode === "create"
+          ? `内容、大纲和画布已经设计好，共 ${plan.steps.length} 个讲解步骤。`
+          : `我整理了 ${plan.steps.length} 个讲解步骤。`,
+        plan,
+      }]);
+    } catch (error) {
+      setMessages((value) => [...value, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: error?.message || "Hermes 暂时无法完成这次设计。",
+        error: true,
+      }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <aside
+      id="hermes-assistant-panel"
+      className="hermes-assistant-panel"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="hermes-assistant-title"
+    >
+      <header>
+        <h2 id="hermes-assistant-title">讲解助手 <span>· Hermes</span></h2>
+        <button type="button" className="assistant-icon-button" aria-label="关闭讲解助手" onClick={onClose}>−</button>
+      </header>
+
+      {connectionState !== "connected" ? (
+        <div className="hermes-connect-view">
+          <div className="hermes-connect-intro">
+            <div>
+              <span className="hermes-connect-eyebrow">首次使用</span>
+              <h3>连接 Hermes</h3>
+              <p>在这台电脑完成一次配对，之后会自动连接。</p>
+            </div>
+            <span className="hermes-connect-status">
+              <i data-state={connectionState} aria-hidden="true" />
+              {connectionState === "checking" ? "正在检查" : "等待连接"}
+            </span>
+          </div>
+          <ol className="hermes-connect-steps">
+            <li>
+              <span>1</span>
+              <div>
+                <strong>安装 Connector</strong>
+                <p>复制命令，在终端中运行。</p>
+                <button type="button" onClick={() => copyValue("command", command)}>
+                  {copied === "command" ? "已复制安装命令" : "复制安装命令"}
+                </button>
+              </div>
+            </li>
+            <li>
+              <span>2</span>
+              <div>
+                <strong>完成配对</strong>
+                <p>终端询问配对口令时，粘贴下面的口令。</p>
+                <button type="button" onClick={() => copyValue("token", connection.token)}>
+                  {copied === "token" ? "已复制配对口令" : "复制配对口令"}
+                </button>
+              </div>
+            </li>
+          </ol>
+          <div className="hermes-connect-footer">
+            <p><strong>仅本机</strong> Connector 只监听 127.0.0.1，不对公网开放。</p>
+            <button type="button" className="hermes-reset-pairing" onClick={resetPairing}>重新生成口令</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div ref={conversationRef} className="assistant-conversation" role="log" aria-live="polite">
+            {!messages.length ? (
+              <div className="assistant-empty-state">
+                <AssistantMascot working={busy} />
+                <h3><span>让画布自己讲清楚。</span><span>今天先讲什么？</span></h3>
+              </div>
+            ) : messages.map((message) => (
+              <div key={message.id} className={`assistant-message assistant-message--${message.role}${message.error ? " assistant-message--error" : ""}`}>
+                <p>{message.text}</p>
+                {message.plan && (
+                  <section className="assistant-plan">
+                    <ol>
+                      {message.plan.steps.map((step, index) => (
+                        <li key={`${index}-${step.title}`}>
+                          <span>{index + 1}</span>
+                          <div><strong>{step.title}</strong>{step.note && <small>{step.note}</small>}</div>
+                        </li>
+                      ))}
+                    </ol>
+                    <button
+                      type="button"
+                      disabled={message.applied}
+                      onClick={() => {
+                        onApplyPlan(message.plan);
+                        setMessages((value) => value.map((item) => item.id === message.id ? { ...item, applied: true } : item));
+                      }}
+                    >
+                      {message.applied
+                        ? (message.plan.mode === "create" ? "已创建画布" : "已应用到路径")
+                        : (message.plan.mode === "create" ? "创建画布并应用" : "应用讲解方案")}
+                    </button>
+                  </section>
+                )}
+              </div>
+            ))}
+            {busy && <div className="assistant-typing" role="status"><i /><i /><i /><span>Hermes 正在设计…</span></div>}
+          </div>
+          <form className="assistant-composer" onSubmit={send}>
+            <textarea
+              ref={composerRef}
+              rows="1"
+              maxLength="600"
+              value={input}
+              placeholder="输入讲解要求…"
+              aria-label="发送给讲解助手的消息"
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <button type="submit" disabled={!input.trim() || busy} aria-label="发送消息"><SendIcon /></button>
+          </form>
+        </>
+      )}
+    </aside>
+  );
+}
+
+function StoryPathEditor({
+  steps,
+  selectedCount,
+  onAdd,
+  onCaptureCamera,
+  onClose,
+  onMove,
+  onRemove,
+  onUpdate,
+}) {
+  const [draggedStepId, setDraggedStepId] = useState(null);
+  const [dropTargetId, setDropTargetId] = useState(null);
+  const [editingStepId, setEditingStepId] = useState(null);
+  const editingStep = steps.find((step) => step.id === editingStepId) ?? null;
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <section
+      id="story-path-editor"
+      className="story-path-editor"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="story-path-title"
+    >
+      <header>
+        <div>
+          <h2 id="story-path-title">讲解路径</h2>
+          <p>选择元素添加步骤，再写下要讲的内容。</p>
+        </div>
+        <button type="button" className="path-icon-button" aria-label="关闭讲解路径" onClick={onClose}>×</button>
+      </header>
+      {steps.length ? (
+        <ol className="story-path-list">
+          {steps.map((element, index) => (
+            <li
+              key={element.id}
+              className={`${editingStepId === element.id ? "story-path-item--editing " : ""}${draggedStepId === element.id ? "story-path-item--dragging" : ""}${dropTargetId === element.id && draggedStepId !== element.id ? " story-path-item--drop-target" : ""}`}
+              draggable
+              title="拖动排序"
+              onDragStart={(event) => {
+                if (event.target.closest("button")) {
+                  event.preventDefault();
+                  return;
+                }
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", element.id);
+                setDraggedStepId(element.id);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTargetId(element.id);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourceId = event.dataTransfer.getData("text/plain") || draggedStepId;
+                const sourceIndex = steps.findIndex((step) => step.id === sourceId);
+                if (sourceIndex >= 0 && sourceIndex !== index) {
+                  onMove(sourceIndex, index - sourceIndex);
+                }
+                setDraggedStepId(null);
+                setDropTargetId(null);
+              }}
+              onDragEnd={() => {
+                setDraggedStepId(null);
+                setDropTargetId(null);
+              }}
+            >
+              <span className="story-path-drag-handle" aria-hidden="true">
+                <svg viewBox="0 0 12 18">
+                  <circle cx="3" cy="4" r="1" />
+                  <circle cx="9" cy="4" r="1" />
+                  <circle cx="3" cy="9" r="1" />
+                  <circle cx="9" cy="9" r="1" />
+                  <circle cx="3" cy="14" r="1" />
+                  <circle cx="9" cy="14" r="1" />
+                </svg>
+              </span>
+              <span className="story-path-number">{index + 1}</span>
+              <button
+                type="button"
+                className="story-path-label"
+                aria-label={`编辑讲解：${storyStepLabel(element)}`}
+                aria-expanded={editingStepId === element.id}
+                onClick={() => setEditingStepId((value) =>
+                  value === element.id ? null : element.id)}
+              >
+                <span>{storyStepLabel(element)}</span>
+                {element.storyNote && <i aria-hidden="true" />}
+              </button>
+              <button
+                type="button"
+                className="path-icon-button"
+                aria-label={`上移：${storyStepLabel(element)}`}
+                disabled={index === 0}
+                onClick={() => onMove(index, -1)}
+              >
+                <ChevronIcon direction="up" />
+              </button>
+              <button
+                type="button"
+                className="path-icon-button"
+                aria-label={`下移：${storyStepLabel(element)}`}
+                disabled={index === steps.length - 1}
+                onClick={() => onMove(index, 1)}
+              >
+                <ChevronIcon direction="down" />
+              </button>
+              <button
+                type="button"
+                className="path-icon-button"
+                aria-label={`移除：${storyStepLabel(element)}`}
+                onClick={() => {
+                  if (editingStepId === element.id) setEditingStepId(null);
+                  onRemove(element.id);
+                }}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="story-path-empty">还没有讲解步骤。</p>
+      )}
+      {editingStep && (
+        <div className="story-copy-editor">
+          <label>
+            <span>步骤标题</span>
+            <input
+              type="text"
+              maxLength="80"
+              value={editingStep.storyTitle ?? ""}
+              placeholder={storyElementLabel(editingStep)}
+              onChange={(event) => onUpdate(editingStep.id, { title: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>讲解文字</span>
+            <textarea
+              rows="3"
+              maxLength="500"
+              value={editingStep.storyNote ?? ""}
+              placeholder="解释这一部分是什么，以及为什么重要。"
+              onChange={(event) => onUpdate(editingStep.id, { note: event.target.value })}
+            />
+          </label>
+          <div className="story-camera-setting">
+            <span>
+              <strong>镜头</strong>
+              <small>{editingStep.storyCamera ? "使用自定义画面" : "自动聚焦所选元素"}</small>
+            </span>
+            <div>
+              {editingStep.storyCamera && (
+                <button type="button" onClick={() => onUpdate(editingStep.id, { camera: null })}>
+                  重置
+                </button>
+              )}
+              <button type="button" onClick={() => onCaptureCamera(editingStep.id)}>
+                {editingStep.storyCamera ? "更新画面" : "使用当前画面"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        className="story-path-add"
+        disabled={!selectedCount}
+        onClick={() => {
+          const stepId = onAdd();
+          if (stepId) setEditingStepId(stepId);
+        }}
+      >
+        {selectedCount ? `添加选中的 ${selectedCount} 个元素` : "在画布中选择元素"}
+      </button>
+    </section>
   );
 }
 
@@ -505,7 +951,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
   );
 }
 
-function StoryLink({ element }) {
+function StoryLink({ active = false, element }) {
   const href = getStoryHref(element);
   const { size, iconX, iconY, underlineY } = storyLinkGeometry(element);
   const centerX = element.x + element.width / 2;
@@ -517,11 +963,11 @@ function StoryLink({ element }) {
 
   return (
     <a
-      className="story-link"
+      className={`story-link${active ? " story-link--active" : ""}`}
       href={href}
       target="_blank"
       rel="noreferrer"
-      aria-label={`打开链接：${element.text}`}
+      aria-label={`打开链接：${element.text || "图形"}`}
       style={{ color: element.strokeColor }}
       transform={rotation}
     >
@@ -548,8 +994,9 @@ function StoryLink({ element }) {
   );
 }
 
-function StoryView({ scene }) {
+function StoryView({ scene, onExit }) {
   const [svgUrl, setSvgUrl] = useState("");
+  const [stepIndex, setStepIndex] = useState(0);
   const visibleElements = useMemo(
     () => scene?.elements?.filter((element) => !element.isDeleted) ?? [],
     [scene],
@@ -564,6 +1011,53 @@ function StoryView({ scene }) {
     width: Math.max(1, bounds[2] - bounds[0] + STORY_PADDING * 2),
     height: Math.max(1, bounds[3] - bounds[1] + STORY_PADDING * 2),
   };
+  const steps = useMemo(
+    () => getStorySteps(visibleElements, scene?.storyPath),
+    [scene?.storyPath, visibleElements],
+  );
+  const currentStep = Math.min(stepIndex, steps.length);
+  const activeStep = steps[currentStep - 1] ?? null;
+  const focusBounds = activeStep?.storyCamera ?? activeStep;
+  const focusScale = activeStep
+    ? Math.max(
+        1,
+        Math.min(
+          activeStep.storyCamera ? 4 : 2.2,
+          frame.width / Math.max(1, focusBounds.width + (activeStep.storyCamera ? 0 : 96)),
+          frame.height / Math.max(1, focusBounds.height + (activeStep.storyCamera ? 0 : 96)),
+        ),
+      )
+    : 1;
+  const focusX = activeStep
+    ? (focusBounds.x + focusBounds.width / 2 - frame.x) / frame.width
+    : 0.5;
+  const focusY = activeStep
+    ? (focusBounds.y + focusBounds.height / 2 - frame.y) / frame.height
+    : 0.5;
+
+  useEffect(() => setStepIndex(0), [scene]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && onExit) {
+        onExit();
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key === " " && target?.closest("a, button")) return;
+      const direction = ["ArrowRight", "PageDown", " "].includes(event.key)
+        ? 1
+        : ["ArrowLeft", "PageUp"].includes(event.key)
+          ? -1
+          : 0;
+      if (!direction) return;
+      event.preventDefault();
+      setStepIndex((value) => Math.max(0, Math.min(steps.length, value + direction)));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onExit, steps.length]);
 
   useEffect(() => {
     if (!scene || !visibleElements.length) return undefined;
@@ -594,42 +1088,66 @@ function StoryView({ scene }) {
     return <p className="story-loading" role="status">正在整理画面…</p>;
   }
 
-  const linkedText = visibleElements.filter(
-    (element) => element.type === "text" && getStoryHref(element),
-  );
-  const highlightedText = visibleElements.filter(
-    (element) => element.type === "text" && getStoryHighlight(element),
-  );
+  const linkedElements = visibleElements.filter(getStoryHref);
+  const storyText = visibleElements
+    .filter((element) => element.type === "text")
+    .map((element) => element.text)
+    .join(" ");
 
   return (
-    <section className="story-view" aria-label="故事预览">
+    <section className="story-view" aria-label="作品讲解">
       <div
         className="story-scene"
-        style={{ "--story-ratio": frame.width / frame.height }}
+        style={{
+          "--story-ratio": frame.width / frame.height,
+          transform: activeStep
+            ? `translate(${(0.5 - focusX * focusScale) * 100}%, ${(0.5 - focusY * focusScale) * 100}%) scale(${focusScale})`
+            : "translate(0, 0) scale(1)",
+        }}
       >
+        {storyText && <p className="story-transcript">{storyText}</p>}
         <img src={svgUrl} alt="" />
         <svg
           className="story-links"
           viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
           aria-label="画面中的链接"
         >
-          {highlightedText.map((element) => {
-            const centerX = element.x + element.width / 2;
-            const centerY = element.y + element.height / 2;
-            return (
-              <g
-                key={`${element.id}-highlight`}
-                transform={`rotate(${(element.angle * 180) / Math.PI} ${centerX} ${centerY})`}
-              >
-                <TextHighlight element={element} />
-              </g>
-            );
-          })}
-          {linkedText.map((element) => (
-            <StoryLink key={element.id} element={element} />
+          {linkedElements.map((element) => (
+            <StoryLink
+              key={element.id}
+              active={activeStep?.storyElementIds?.includes(element.id) ?? element.id === activeStep?.id}
+              element={element}
+            />
           ))}
         </svg>
       </div>
+      <nav className="story-steps" aria-label="讲解步骤">
+        <button
+          type="button"
+          aria-label="上一步"
+          disabled={currentStep === 0}
+          onClick={() => setStepIndex(currentStep - 1)}
+        >
+          <ChevronIcon direction="left" />
+        </button>
+        <div className="story-step-status" aria-live="polite">
+          <span className="story-step-meta">
+            {activeStep ? `步骤 ${currentStep} / ${steps.length}` : `${steps.length} 个步骤`}
+          </span>
+          <strong>{activeStep ? storyStepLabel(activeStep) : "全景"}</strong>
+          {activeStep?.storyNote?.trim() && (
+            <span className="story-step-note">{activeStep.storyNote.trim()}</span>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="下一步"
+          disabled={currentStep === steps.length}
+          onClick={() => setStepIndex(currentStep + 1)}
+        >
+          <ChevronIcon direction="right" />
+        </button>
+      </nav>
     </section>
   );
 }
@@ -660,14 +1178,41 @@ function App() {
   const [toolbarTarget, setToolbarTarget] = useState(null);
   const [linkEditorId, setLinkEditorId] = useState(null);
   const [highlighterActive, setHighlighterActive] = useState(false);
-  const [highlighterColor, setHighlighterColor] = useState("#b8751a");
+  const [highlighterColor, setHighlighterColor] = useState("#9f6b53");
+  const [highlighterWidth, setHighlighterWidth] = useState(20);
+  const [pathEditorOpen, setPathEditorOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [hermesConnected, setHermesConnected] = useState(false);
+  const [storyPath, setStoryPath] = useState(localScene.storyPath);
   const linkEditorTrigger = useRef(null);
+  const pathButtonRef = useRef(null);
+  const assistantButtonRef = useRef(null);
   const saveTimer = useRef();
   const publishTimer = useRef();
   const latestScene = useRef(localScene);
   const linkEditorElement = editorView.elements.find(
     (element) => element.id === linkEditorId && !element.isDeleted,
   );
+  const editorStorySteps = useMemo(
+    () => getStorySteps(editorView.elements, storyPath),
+    [editorView.elements, storyPath],
+  );
+  const selectedStoryElementIds = useMemo(
+    () => Object.keys(editorView.appState.selectedElementIds ?? {}).filter((id) =>
+      editorView.elements.some((element) => element.id === id && !element.isDeleted),
+    ),
+    [editorView.appState.selectedElementIds, editorView.elements],
+  );
+
+  const closePathEditor = useCallback(() => {
+    setPathEditorOpen(false);
+    requestAnimationFrame(() => pathButtonRef.current?.focus());
+  }, []);
+
+  const closeAssistant = useCallback(() => {
+    setAssistantOpen(false);
+    requestAnimationFrame(() => assistantButtonRef.current?.focus());
+  }, []);
 
   const closeLinkEditor = useCallback((restoreFocus = true) => {
     setLinkEditorId(null);
@@ -679,26 +1224,31 @@ function App() {
   const openLinkEditor = useCallback((elementId, trigger) => {
     linkEditorTrigger.current = trigger ?? document.activeElement;
     excalidrawAPI?.updateScene({ appState: { showHyperlinkPopup: false } });
+    setPathEditorOpen(false);
+    setAssistantOpen(false);
     setLinkEditorId(elementId);
   }, [excalidrawAPI]);
 
-  const activateHighlighter = useCallback((color) => {
+  const activateHighlighter = useCallback((color, width = highlighterWidth) => {
     setHighlighterColor(color);
+    setHighlighterWidth(width);
     setHighlighterActive(true);
     setLinkEditorId(null);
+    setPathEditorOpen(false);
+    setAssistantOpen(false);
     excalidrawAPI?.updateScene({
       appState: {
         currentItemStrokeColor: color,
-        currentItemStrokeWidth: 8,
+        currentItemStrokeWidth: width,
         currentItemStrokeStyle: "solid",
         currentItemRoughness: 0,
-        currentItemOpacity: 22,
+        currentItemOpacity: 30,
         currentItemStartArrowhead: null,
         currentItemEndArrowhead: null,
       },
     });
-    excalidrawAPI?.setActiveTool({ type: "line", locked: true });
-  }, [excalidrawAPI]);
+    excalidrawAPI?.setActiveTool({ type: "freedraw", locked: true });
+  }, [excalidrawAPI, highlighterWidth]);
 
   const toggleHighlighter = useCallback(() => {
     if (highlighterActive) {
@@ -716,6 +1266,22 @@ function App() {
     },
     [],
   );
+
+  useEffect(() => {
+    const connection = readHermesConnection();
+    if (!connection) return undefined;
+    let active = true;
+    testHermesConnection(connection)
+      .then(() => {
+        if (active) setHermesConnected(true);
+      })
+      .catch(() => {
+        if (active) setHermesConnected(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!sharedPayload) return;
@@ -753,7 +1319,7 @@ function App() {
   const save = useCallback((elements, appState, files) => {
     window.clearTimeout(saveTimer.current);
     setSaveState("saving");
-    if (highlighterActive && appState.activeTool?.type !== "line") {
+    if (highlighterActive && appState.activeTool?.type !== "freedraw") {
       setHighlighterActive(false);
     }
     const savedElements = stashStoryLinks(elements);
@@ -768,7 +1334,12 @@ function App() {
       zenModeEnabled: _zenModeEnabled,
       ...savedAppState
     } = appState;
-    latestScene.current = { elements: savedElements, appState: savedAppState, files };
+    latestScene.current = {
+      ...latestScene.current,
+      elements: savedElements,
+      appState: savedAppState,
+      files,
+    };
     if (savedElements !== elements) {
       requestAnimationFrame(() => excalidrawAPI?.updateScene({ elements: savedElements }));
     }
@@ -842,6 +1413,229 @@ function App() {
     closeLinkEditor();
   }, [closeLinkEditor, editorView.appState, excalidrawAPI, linkEditorId]);
 
+  const commitStoryPath = useCallback((nextPath) => {
+    const nextScene = { ...latestScene.current, storyPath: nextPath };
+    latestScene.current = nextScene;
+    setStoryPath(nextPath);
+    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+  }, []);
+
+  const moveStoryStep = useCallback((index, direction) => {
+    const path = makeStoryPath(
+      latestScene.current.elements,
+      latestScene.current.storyPath,
+    );
+    const target = index + direction;
+    if (!path[index] || target < 0 || target >= path.length) return;
+    const [moved] = path.splice(index, 1);
+    path.splice(target, 0, moved);
+    commitStoryPath(path);
+  }, [commitStoryPath]);
+
+  const addStoryStep = useCallback(() => {
+    if (!selectedStoryElementIds.length) return;
+    const path = makeStoryPath(
+      latestScene.current.elements,
+      latestScene.current.storyPath,
+    );
+    const stepId = crypto.randomUUID();
+    path.push({ id: stepId, elementIds: selectedStoryElementIds });
+    commitStoryPath(path);
+    return stepId;
+  }, [commitStoryPath, selectedStoryElementIds]);
+
+  const removeStoryStep = useCallback((stepId) => {
+    commitStoryPath(
+      makeStoryPath(
+        latestScene.current.elements,
+        latestScene.current.storyPath,
+      ).filter((step) => step.id !== stepId),
+    );
+  }, [commitStoryPath]);
+
+  const updateStoryStep = useCallback((stepId, changes) => {
+    const path = makeStoryPath(
+      latestScene.current.elements,
+      latestScene.current.storyPath,
+    );
+    const step = path.find((entry) => entry.id === stepId);
+    if (!step) return;
+    for (const [key, value] of Object.entries(changes)) {
+      if (value == null || value === "") delete step[key];
+      else step[key] = value;
+    }
+    commitStoryPath(path);
+  }, [commitStoryPath]);
+
+  const captureStoryCamera = useCallback((stepId) => {
+    const appState = excalidrawAPI?.getAppState() ?? editorView.appState;
+    const zoom = appState.zoom?.value ?? 1;
+    const offsetLeft = appState.offsetLeft ?? 0;
+    const offsetTop = appState.offsetTop ?? 0;
+    updateStoryStep(stepId, {
+      camera: {
+        x: -(appState.scrollX ?? 0),
+        y: -(appState.scrollY ?? 0),
+        width: Math.max(1, ((appState.width ?? window.innerWidth) - offsetLeft) / zoom),
+        height: Math.max(1, ((appState.height ?? window.innerHeight) - offsetTop) / zoom),
+      },
+    });
+  }, [editorView.appState, excalidrawAPI, updateStoryStep]);
+
+  const generateAgentPlan = useCallback(async (goal) => {
+    const plan = await requestHermesLecturePlan(
+      latestScene.current.elements,
+      latestScene.current.storyPath,
+      goal,
+    );
+    if (plan.mode !== "create") return plan;
+    const generated = createGeneratedLecture(
+      plan.document,
+      () => crypto.randomUUID(),
+      FONT_FAMILY.Helvetica,
+    );
+    return {
+      ...plan,
+      ...generated,
+      elements: convertToExcalidrawElements(generated.elements, { regenerateIds: false }),
+    };
+  }, []);
+
+  const applyAgentPlan = useCallback((plan) => {
+    const nextPath = plan.steps.map((step) => ({
+      id: crypto.randomUUID(),
+      elementIds: step.elementIds,
+      title: step.title,
+      ...(step.note ? { note: step.note } : {}),
+    }));
+    if (plan.mode !== "create") {
+      commitStoryPath(nextPath);
+      return;
+    }
+    const appState = {
+      ...latestScene.current.appState,
+      viewBackgroundColor: PAPER,
+      selectedElementIds: {},
+    };
+    const nextScene = { elements: plan.elements, appState, files: {}, storyPath: nextPath };
+    latestScene.current = nextScene;
+    editorViewSignature.current = editorLinkSignature(plan.elements, appState);
+    setScene(nextScene);
+    setEditorView({ elements: plan.elements, appState });
+    setStoryPath(nextPath);
+    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+    excalidrawAPI?.updateScene({
+      elements: plan.elements,
+      appState: { viewBackgroundColor: PAPER, selectedElementIds: {} },
+    });
+    requestAnimationFrame(() => excalidrawAPI?.scrollToContent(plan.elements, {
+      fitToViewport: true,
+      viewportZoomFactor: 0.82,
+      animate: true,
+    }));
+  }, [commitStoryPath, excalidrawAPI]);
+
+  const openHermes = useCallback(() => {
+    setLinkEditorId(null);
+    setPathEditorOpen(false);
+    setAssistantOpen(true);
+  }, []);
+
+  const renderCanvasControls = (embedded = false) => (
+    <div
+      className={`canvas-controls${embedded ? " canvas-controls--embedded" : ""}`}
+      role="group"
+      aria-label={preview ? "讲解操作" : "画板操作"}
+    >
+      {!preview && (
+        <span className={`save-state save-state--${saveState}`} role="status">
+          <span className="save-state__dot" aria-hidden="true" />
+          <span className="save-state__label">
+            {saveState === "saving"
+              ? "保存中"
+              : saveState === "error"
+                ? "保存失败"
+                : "已保存"}
+          </span>
+        </span>
+      )}
+      {!preview && (
+        <button
+          ref={assistantButtonRef}
+          className="control-button control-button--hermes"
+          type="button"
+          data-connected={hermesConnected}
+          aria-label={`Hermes：${hermesConnected ? "已连接" : "未连接，点击连接"}`}
+          aria-pressed={assistantOpen}
+          aria-expanded={assistantOpen}
+          aria-controls="hermes-assistant-panel"
+          title={`Hermes：${hermesConnected ? "已连接" : "点击连接"}`}
+          onClick={openHermes}
+        >
+          <span className="hermes-status-dot" aria-hidden="true" />
+          <span className="control-button__label control-button__label--keep">助手</span>
+        </button>
+      )}
+      {!preview && (
+        <button
+          ref={pathButtonRef}
+          className="control-button"
+          type="button"
+          title="讲解路径"
+          aria-label="讲解路径"
+          aria-pressed={pathEditorOpen}
+          aria-expanded={pathEditorOpen}
+          aria-controls="story-path-editor"
+          onClick={() => {
+            setLinkEditorId(null);
+            setAssistantOpen(false);
+            setPathEditorOpen((value) => !value);
+          }}
+        >
+          <PathIcon />
+          <span className="control-button__label">路径</span>
+        </button>
+      )}
+      <button
+        className="control-button"
+        type="button"
+        title={preview ? "返回编辑" : "讲解模式"}
+        aria-pressed={preview}
+        onClick={() => {
+          setLinkEditorId(null);
+          setPathEditorOpen(false);
+          setAssistantOpen(false);
+          setHighlighterActive(false);
+          excalidrawAPI?.setActiveTool({ type: "selection" });
+          if (!preview) setScene(latestScene.current);
+          setPreview((value) => !value);
+        }}
+      >
+        <EyeIcon crossed={preview} />
+        <span className="control-button__label">{preview ? "返回编辑" : "讲解模式"}</span>
+      </button>
+      {!preview && (
+        <button
+          className="control-button control-button--publish"
+          type="button"
+          disabled={publishState === "working"}
+          aria-busy={publishState === "working"}
+          onClick={publish}
+        >
+          {publishState === "working"
+            ? "生成中"
+            : publishState === "copied"
+              ? "已复制"
+              : publishState === "ready"
+                ? "已生成"
+                : publishState === "error"
+                  ? "内容过大"
+                  : "发布"}
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <main className={`canvas-app${isShared ? " canvas-app--shared" : ""}${highlighterActive ? " canvas-app--highlighting" : ""}`}>
       {!isShared && !preview && excalidrawAPI && (
@@ -850,54 +1644,33 @@ function App() {
           color={highlighterColor}
           onToggle={toggleHighlighter}
           onColor={activateHighlighter}
+          onWidth={(width) => activateHighlighter(highlighterColor, width)}
           target={toolbarTarget}
+          width={highlighterWidth}
         />
       )}
-      {!isShared && (
-        <div className="canvas-controls" role="group" aria-label="画板操作">
-          {!preview && (
-            <span className={`save-state save-state--${saveState}`} role="status">
-              <span className="save-state__dot" aria-hidden="true" />
-              {saveState === "saving"
-                ? "保存中"
-                : saveState === "error"
-                  ? "保存失败"
-                  : "已保存"}
-            </span>
-          )}
-          <button
-            className="control-button"
-            type="button"
-            aria-pressed={preview}
-            onClick={() => {
-              setLinkEditorId(null);
-              setHighlighterActive(false);
-              excalidrawAPI?.setActiveTool({ type: "selection" });
-              if (!preview) setScene(latestScene.current);
-              setPreview((value) => !value);
-            }}
-          >
-            <EyeIcon crossed={preview} />
-            {preview ? "编辑" : "预览"}
-          </button>
-          <button
-            className="control-button control-button--publish"
-            type="button"
-            disabled={publishState === "working"}
-            aria-busy={publishState === "working"}
-            onClick={publish}
-          >
-            {publishState === "working"
-              ? "生成中"
-              : publishState === "copied"
-                ? "已复制"
-                : publishState === "ready"
-                  ? "已生成"
-                  : publishState === "error"
-                    ? "内容过大"
-                    : "发布"}
-          </button>
-        </div>
+      {!isShared && preview && renderCanvasControls()}
+
+      {!preview && pathEditorOpen && (
+        <StoryPathEditor
+          steps={editorStorySteps}
+          selectedCount={selectedStoryElementIds.length}
+          onAdd={addStoryStep}
+          onCaptureCamera={captureStoryCamera}
+          onClose={closePathEditor}
+          onMove={moveStoryStep}
+          onRemove={removeStoryStep}
+          onUpdate={updateStoryStep}
+        />
+      )}
+
+      {!preview && assistantOpen && (
+        <HermesAssistantPanel
+          onApplyPlan={applyAgentPlan}
+          onClose={closeAssistant}
+          onConnectionChange={setHermesConnected}
+          onGeneratePlan={generateAgentPlan}
+        />
       )}
 
       {shareError && (
@@ -907,15 +1680,16 @@ function App() {
       )}
 
       {preview ? (
-        <StoryView scene={scene} />
+        <StoryView scene={scene} onExit={isShared ? null : () => setPreview(false)} />
       ) : (
         <Excalidraw
           initialData={scene}
           excalidrawAPI={setExcalidrawAPI}
           langCode="zh-CN"
-          name="InkPath"
+          name="Tale"
           theme="light"
           onChange={save}
+          renderTopRightUI={() => renderCanvasControls(true)}
           UIOptions={{
             canvasActions: {
               loadScene: true,
@@ -938,18 +1712,18 @@ function App() {
             <MainMenu.DefaultItems.ChangeCanvasBackground />
           </MainMenu.Group>
           <MainMenu.Separator />
-          <MainMenu.ItemCustom className="inkpath-menu-brand">
-            <strong>InkPath</strong>
+          <MainMenu.ItemCustom className="tale-menu-brand">
+            <strong>Tale</strong>
             <span>Draw your story.</span>
           </MainMenu.ItemCustom>
         </MainMenu>
         <WelcomeScreen>
           <WelcomeScreen.Center>
             <WelcomeScreen.Center.Logo>
-              <span className="welcome-mark">InkPath</span>
+              <span className="welcome-mark">Tale</span>
             </WelcomeScreen.Center.Logo>
             <WelcomeScreen.Center.Heading>
-              把经历、想法和故事画成一条路。
+              把经历、想法和故事画出来。
             </WelcomeScreen.Center.Heading>
             <WelcomeScreen.Center.Menu>
               <WelcomeScreen.Center.MenuItemLoadScene>
@@ -976,6 +1750,8 @@ function App() {
           appState={editorView.appState}
           activeLinkId={linkEditorId}
           onEditLink={openLinkEditor}
+          showSteps={pathEditorOpen}
+          storyPath={storyPath}
         />
       )}
       {!preview && linkEditorElement && (

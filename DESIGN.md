@@ -1,12 +1,12 @@
 ---
 colors:
   paper: "#ffffff"
-  ink: "#25231f"
-  muted: "#77736b"
-  accent: "#5f6f52"
-  focus: "#2563eb"
+  ink: "#37352f"
+  muted: "#787774"
+  accent: "#2383e2"
+  focus: "#2383e2"
 typography:
-  interface: "Inter, ui-sans-serif, system-ui, sans-serif"
+  interface: "Inter, Noto Sans SC, ui-sans-serif, system-ui, sans-serif"
 layout:
   control_size: "40px"
   canvas_padding: "16px"
@@ -16,15 +16,15 @@ shapes:
 
 # Overview
 
-InkPath is a quiet white paper surface for hand-drawn stories, explanations, and résumés. Interface chrome should recede until the user needs it.
+Tale is a quiet white paper surface for hand-drawn stories, explanations, and résumés. Interface chrome should recede until the user needs it.
 
 # Colors
 
-Use white paper and near-black ink. Authored accents use restrained blue, green, and amber. Avoid gradients, saturated panels, and decorative color blocks.
+Use white paper and Notion-like near-black ink. Interface states use restrained blue; authored accents use muted blue, green, and brown. Avoid gradients, saturated panels, and decorative color blocks.
 
 # Typography
 
-Use the system sans-serif for controls and Excalidraw's hand-drawn fonts for authored content. Keep interface labels compact and calm.
+Use Google Fonts Inter and Noto Sans SC for controls, with system fallbacks. Keep Excalidraw's hand-drawn fonts for authored content and interface labels compact and calm.
 
 # Layout
 
@@ -36,11 +36,11 @@ Use a subtle structural border for floating actions. Avoid shadows that can read
 
 # Shapes
 
-Controls use 8px corners. Keep the control group itself visually transparent so it cannot read as another button underneath.
+Controls use 6px corners. Keep the control group itself visually transparent so it cannot read as another button underneath.
 
 # Components
 
-The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as InkPath and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact doodle-settings popover, and a marker inside the main toolbar. Native links are converted into InkPath story links after entry; clicking their doodle opens a nearby popover with six visual icon choices and live left/right placement. The marker reuses an Excalidraw line with a fixed 8px width, 22% opacity, and no roughness, so users can drag a clean band over any phrase. Published scenes remove all application chrome and add accessible animated link overlays: a small doodle icon and a hand-drawn underline on hover or keyboard focus.
+The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as Tale and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Tale story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker uses Excalidraw free draw with three widths, 30% opacity, and no roughness, so users can drag a natural translucent stroke over any phrase. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
 
 # Do's and Don'ts
 
