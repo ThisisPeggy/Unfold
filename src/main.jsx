@@ -52,6 +52,25 @@ function hermesSceneRevision(scene) {
     scene.storyPath ?? [],
   ]);
 }
+
+function hermesConnectionMessage(error) {
+  const message = String(error?.message || error || "");
+  if (/口令|拒绝/.test(message)) return "配对口令不匹配。请重新复制口令，或重新生成后再次配对。";
+  if (/WebSocket/.test(message)) return "当前浏览器无法连接本机 Connector。";
+  return "尚未连接到本机 Connector。请确认安装命令已成功运行。";
+}
+
+function AssistantMessageText({ text }) {
+  return (
+    <p className="assistant-message-text">
+      {String(text).split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
+        /^https?:\/\//.test(part)
+          ? <a key={`${index}-${part}`} href={part} target="_blank" rel="noreferrer">{part}</a>
+          : part,
+      )}
+    </p>
+  );
+}
 const STORY_ICON_LABELS = {
   camera: "照片",
   page: "页面",
@@ -403,27 +422,37 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSte
 
 function HermesAssistantPanel({
   canUndo,
+  canvasHasContent,
   onApplyPlan,
+  onClearSelection,
   onClose,
   onConnectionChange,
   onGeneratePlan,
   onUndoPlan,
   open,
+  selectionCount,
 }) {
   const [connection, setConnection] = useState(() => {
     const saved = readHermesConnection();
     return saved ?? saveHermesConnection(createHermesConnection());
   });
   const [connectionState, setConnectionState] = useState("checking");
+  const [connectionError, setConnectionError] = useState("");
+  const [checkVersion, setCheckVersion] = useState(0);
   const [copied, setCopied] = useState("");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 640px)").matches);
   const composerRef = useRef(null);
   const conversationRef = useRef(null);
+  const firstActionRef = useRef(null);
+  const generationRef = useRef(null);
+  const panelRef = useRef(null);
   const command = useMemo(() => hermesConnectorSetupCommand(), []);
 
   useEffect(() => {
+    if (!open) return undefined;
     let active = true;
     let timer;
     const check = async () => {
@@ -431,14 +460,16 @@ function HermesAssistantPanel({
       try {
         await testHermesConnection(connection);
         if (!active) return;
+        setConnectionError("");
         setConnectionState("connected");
         onConnectionChange(true);
         timer = window.setTimeout(check, 10_000);
-      } catch {
+      } catch (error) {
         if (!active) return;
+        setConnectionError(hermesConnectionMessage(error));
         setConnectionState("waiting");
         onConnectionChange(false);
-        timer = window.setTimeout(check, 2_000);
+        timer = window.setTimeout(check, 5_000);
       }
     };
     check();
@@ -446,16 +477,48 @@ function HermesAssistantPanel({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [connection, onConnectionChange]);
+  }, [checkVersion, connection, onConnectionChange, open]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    const update = () => setCompact(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (!open) return undefined;
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") onClose();
+    const handleKeys = (event) => {
+      if (event.key === "Escape") {
+        generationRef.current?.abort();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !compact) return;
+      const focusable = [...panelRef.current.querySelectorAll(
+        'button:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+      )];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, open]);
+    document.addEventListener("keydown", handleKeys);
+    return () => document.removeEventListener("keydown", handleKeys);
+  }, [compact, onClose, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() =>
+      (connectionState === "connected" ? composerRef : firstActionRef).current?.focus(),
+    );
+  }, [open]);
 
   useEffect(() => {
     if (open && connectionState === "connected") composerRef.current?.focus();
@@ -476,6 +539,7 @@ function HermesAssistantPanel({
   };
 
   const resetPairing = () => {
+    if (!window.confirm("重新生成口令会使当前 Connector 失效，确定继续吗？")) return;
     clearHermesConnection();
     const next = saveHermesConnection(createHermesConnection());
     setConnection(next);
@@ -483,18 +547,21 @@ function HermesAssistantPanel({
     onConnectionChange(false);
   };
 
-  const send = async (event) => {
-    event.preventDefault();
-    const prompt = input.trim();
+  const submitPrompt = async (prompt, appendUser = true) => {
     if (!prompt || busy || connectionState !== "connected") return;
     const id = crypto.randomUUID();
-    const conversation = messages.slice(-8).map(({ role, text }) => ({ role, text }));
-    setMessages((value) => [...value, { id, role: "user", text: prompt }]);
+    const conversation = messages
+      .filter((message) => !message.error)
+      .slice(-8)
+      .map(({ role, text }) => ({ role, text }));
+    if (appendUser) setMessages((value) => [...value, { id, role: "user", text: prompt }]);
     setInput("");
     setBusy(true);
+    const controller = new AbortController();
+    generationRef.current = controller;
     try {
       const draftPlan = [...messages].reverse().find((message) => message.plan)?.plan;
-      const plan = await onGeneratePlan(prompt, draftPlan, conversation);
+      const plan = await onGeneratePlan(prompt, draftPlan, conversation, controller.signal);
       setMessages((value) => [...value, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -503,39 +570,58 @@ function HermesAssistantPanel({
           : plan.mode === "create"
             ? `内容、大纲和画布已经设计好，共 ${plan.steps.length} 个讲解步骤。`
             : `我整理了 ${plan.steps.length} 个讲解步骤。`,
-        ...(plan.mode === "chat" ? {} : { plan }),
+        ...(plan.mode === "chat" ? {} : { plan, requestPrompt: prompt }),
       }]);
     } catch (error) {
       setMessages((value) => [...value, {
         id: crypto.randomUUID(),
         role: "assistant",
-        text: error?.message || "Hermes 暂时无法完成这次设计。",
-        error: true,
+        text: error?.name === "AbortError"
+          ? "已停止生成。"
+          : error?.message || "Hermes 暂时无法完成这次请求。",
+        error: error?.name !== "AbortError",
+        ...(error?.name === "AbortError" ? {} : { retryPrompt: prompt }),
       }]);
+      if (error?.name !== "AbortError") setInput(prompt);
     } finally {
+      generationRef.current = null;
       setBusy(false);
     }
   };
 
+  const send = (event) => {
+    event.preventDefault();
+    submitPrompt(input.trim());
+  };
+
+  const closePanel = () => {
+    generationRef.current?.abort();
+    onClose();
+  };
+
   return (
     <aside
+      ref={panelRef}
       id="hermes-assistant-panel"
       className="hermes-assistant-panel"
       hidden={!open}
       role="dialog"
-      aria-modal="false"
+      aria-modal={compact}
       aria-labelledby="hermes-assistant-title"
     >
       <header>
-        <h2 id="hermes-assistant-title">讲解助手 <span>· Hermes</span></h2>
-        <button type="button" className="assistant-icon-button" aria-label="关闭讲解助手" onClick={onClose}>−</button>
+        <h2 id="hermes-assistant-title">助手 <span>· Hermes</span></h2>
+        <button type="button" className="assistant-icon-button" aria-label="关闭 Hermes" onClick={closePanel}>−</button>
       </header>
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {copied === "command" ? "安装命令已复制" : copied === "token" ? "配对口令已复制" : ""}
+      </span>
 
       {connectionState !== "connected" ? (
         <div className="hermes-connect-view">
           <div className="hermes-connect-intro">
             <div>
-              <span className="hermes-connect-eyebrow">首次使用</span>
+              <span className="hermes-connect-eyebrow">本机连接</span>
               <h3>连接 Hermes</h3>
               <p>在这台电脑完成一次配对，之后会自动连接。</p>
             </div>
@@ -550,7 +636,7 @@ function HermesAssistantPanel({
               <div>
                 <strong>安装 Connector</strong>
                 <p>复制命令，在终端中运行。</p>
-                <button type="button" onClick={() => copyValue("command", command)}>
+                <button ref={firstActionRef} type="button" onClick={() => copyValue("command", command)}>
                   {copied === "command" ? "已复制安装命令" : "复制安装命令"}
                 </button>
               </div>
@@ -566,6 +652,12 @@ function HermesAssistantPanel({
               </div>
             </li>
           </ol>
+          {connectionError && (
+            <div className="hermes-connect-error" role="alert">
+              <p>{connectionError}</p>
+              <button type="button" onClick={() => setCheckVersion((value) => value + 1)}>再次检查</button>
+            </div>
+          )}
           <div className="hermes-connect-footer">
             <p><strong>仅本机</strong> Connector 只监听 127.0.0.1，不对公网开放。</p>
             <button type="button" className="hermes-reset-pairing" onClick={resetPairing}>重新生成口令</button>
@@ -577,13 +669,53 @@ function HermesAssistantPanel({
             {!messages.length ? (
               <div className="assistant-empty-state">
                 <AssistantMascot working={busy} />
-                <h3><span>让画布自己讲清楚。</span><span>今天先讲什么？</span></h3>
+                <h3><span>问问题，也可以整理画布。</span><span>今天想做什么？</span></h3>
+                <p>Hermes 可以聊天、写作和设计讲解路径，但不会联网查询实时信息。</p>
               </div>
             ) : messages.map((message) => (
-              <div key={message.id} className={`assistant-message assistant-message--${message.role}${message.error ? " assistant-message--error" : ""}`}>
-                <p>{message.text}</p>
+              <div
+                key={message.id}
+                className={`assistant-message assistant-message--${message.role}${message.error ? " assistant-message--error" : ""}`}
+                role={message.error ? "alert" : undefined}
+              >
+                <AssistantMessageText text={message.text} />
+                {message.retryPrompt && (
+                  <button
+                    type="button"
+                    className="assistant-retry"
+                    disabled={busy}
+                    onClick={() => {
+                      setMessages((value) => value.map((item) =>
+                        item.id === message.id ? { ...item, retryPrompt: null } : item,
+                      ));
+                      submitPrompt(message.retryPrompt, false);
+                    }}
+                  >
+                    重试
+                  </button>
+                )}
                 {message.plan && (
                   <section className="assistant-plan">
+                    {message.plan.mode === "create" && (
+                      <>
+                        <p className="assistant-plan-warning">将替换当前画布；应用后可以立即撤销。</p>
+                        <details className="assistant-document-preview">
+                          <summary>查看将写入画布的内容</summary>
+                          <h4>{message.plan.document.title}</h4>
+                          {message.plan.document.subtitle && <p>{message.plan.document.subtitle}</p>}
+                          {message.plan.document.sections.map((section) => (
+                            <div key={section.title}>
+                              <strong>{section.title}</strong>
+                              <p>{section.body}</p>
+                            </div>
+                          ))}
+                          <div>
+                            <strong>{message.plan.document.closing.title}</strong>
+                            <p>{message.plan.document.closing.body}</p>
+                          </div>
+                        </details>
+                      </>
+                    )}
                     <ol>
                       {message.plan.steps.map((step, index) => (
                         <li key={`${index}-${step.title}`}>
@@ -594,7 +726,7 @@ function HermesAssistantPanel({
                     </ol>
                     <button
                       type="button"
-                      disabled={message.applied && !message.undoable}
+                      disabled={message.applied && (!message.undoable || !canUndo)}
                       onClick={() => {
                         if (message.applied) {
                           const undoError = onUndoPlan();
@@ -607,34 +739,54 @@ function HermesAssistantPanel({
                           ));
                           return;
                         }
+                        if (message.plan.mode === "create" && canvasHasContent && !window.confirm(
+                          "这会替换当前画布。应用后可在继续编辑前撤销，确定继续吗？",
+                        )) return;
                         const error = onApplyPlan(message.plan);
                         setMessages((value) => value.map((item) =>
                           item.id === message.id
                             ? error
-                              ? { ...item, text: error, error: true }
+                              ? {
+                                  ...item,
+                                  plan: undefined,
+                                  text: error,
+                                  error: true,
+                                  retryPrompt: item.requestPrompt,
+                                }
                               : { ...item, applied: true, undoable: true, error: false }
                             : { ...item, undoable: false },
                         ));
                       }}
                     >
                       {message.applied
-                        ? (message.undoable && canUndo ? "撤销 Hermes 更改" : "已应用")
-                        : (message.plan.mode === "create" ? "创建画布并应用" : "应用讲解方案")}
+                        ? (message.undoable && canUndo ? "撤销 Hermes 更改" : "已应用（撤销已过期）")
+                        : (message.plan.mode === "create" ? "替换当前画布" : "应用讲解方案")}
                     </button>
                   </section>
                 )}
               </div>
             ))}
-            {busy && <div className="assistant-typing" role="status"><i /><i /><i /><span>Hermes 正在设计…</span></div>}
+            {busy && (
+              <div className="assistant-typing">
+                <span role="status"><i /><i /><i />Hermes 正在思考…</span>
+                <button type="button" onClick={() => generationRef.current?.abort()}>停止</button>
+              </div>
+            )}
           </div>
+          {selectionCount > 0 && (
+            <div className="assistant-scope" role="status">
+              <span>仅处理已选中的 {selectionCount} 个元素</span>
+              <button type="button" onClick={onClearSelection}>清除选区</button>
+            </div>
+          )}
           <form className="assistant-composer" onSubmit={send}>
             <textarea
               ref={composerRef}
               rows="1"
               maxLength="600"
               value={input}
-              placeholder="输入讲解要求…"
-              aria-label="发送给讲解助手的消息"
+              placeholder="问问题或调整画布…"
+              aria-label="发送给 Hermes 的消息"
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -643,6 +795,7 @@ function HermesAssistantPanel({
                 }
               }}
             />
+            <span className="assistant-input-meta" aria-hidden="true">{input.length}/600</span>
             <button type="submit" disabled={!input.trim() || busy} aria-label="发送消息"><SendIcon /></button>
           </form>
         </>
@@ -1373,6 +1526,14 @@ function App() {
       appState: savedAppState,
       files,
     };
+    if (
+      agentUndoRevision.current &&
+      agentUndoRevision.current !== hermesSceneRevision(latestScene.current)
+    ) {
+      agentUndoScene.current = null;
+      agentUndoRevision.current = "";
+      setAgentUndoAvailable(false);
+    }
     if (savedElements !== elements) {
       requestAnimationFrame(() => excalidrawAPI?.updateScene({ elements: savedElements }));
     }
@@ -1449,6 +1610,14 @@ function App() {
   const commitStoryPath = useCallback((nextPath) => {
     const nextScene = { ...latestScene.current, storyPath: nextPath };
     latestScene.current = nextScene;
+    if (
+      agentUndoRevision.current &&
+      agentUndoRevision.current !== hermesSceneRevision(nextScene)
+    ) {
+      agentUndoScene.current = null;
+      agentUndoRevision.current = "";
+      setAgentUndoAvailable(false);
+    }
     setStoryPath(nextPath);
     setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
   }, []);
@@ -1515,14 +1684,14 @@ function App() {
     });
   }, [editorView.appState, excalidrawAPI, updateStoryStep]);
 
-  const generateAgentPlan = useCallback(async (goal, draftPlan, conversation) => {
+  const generateAgentPlan = useCallback(async (goal, draftPlan, conversation, signal) => {
     const sourceRevision = hermesSceneRevision(latestScene.current);
     const scopeElementIds = selectedStoryElementIds;
     const plan = await requestHermesLecturePlan(
       latestScene.current.elements,
       latestScene.current.storyPath,
       goal,
-      { selectedElementIds: scopeElementIds, draftPlan, conversation },
+      { selectedElementIds: scopeElementIds, draftPlan, conversation, signal },
     );
     if (plan.mode === "chat") return plan;
     if (plan.mode !== "create") return { ...plan, sourceRevision, scopeElementIds };
@@ -1544,6 +1713,7 @@ function App() {
     if (plan.sourceRevision !== hermesSceneRevision(latestScene.current)) {
       return "画布在方案生成后发生了变化，请让 Hermes 重新生成后再应用。";
     }
+    agentUndoRevision.current = "";
     agentUndoScene.current = structuredClone(latestScene.current);
     setAgentUndoAvailable(true);
     const nextPath = plan.mode === "create"
@@ -1571,6 +1741,7 @@ function App() {
     };
     const nextScene = { elements: plan.elements, appState, files: {}, storyPath: nextPath };
     latestScene.current = nextScene;
+    agentUndoRevision.current = hermesSceneRevision(nextScene);
     editorViewSignature.current = editorLinkSignature(plan.elements, appState);
     setScene(nextScene);
     setEditorView({ elements: plan.elements, appState });
@@ -1583,9 +1754,8 @@ function App() {
     requestAnimationFrame(() => excalidrawAPI?.scrollToContent(plan.elements, {
       fitToViewport: true,
       viewportZoomFactor: 0.82,
-      animate: true,
+      animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     }));
-    agentUndoRevision.current = hermesSceneRevision(latestScene.current);
     return "";
   }, [commitStoryPath, excalidrawAPI]);
 
@@ -1618,6 +1788,10 @@ function App() {
     setAssistantVisited(true);
     setAssistantOpen(true);
   }, []);
+
+  const clearAssistantSelection = useCallback(() => {
+    excalidrawAPI?.updateScene({ appState: { selectedElementIds: {} } });
+  }, [excalidrawAPI]);
 
   const renderCanvasControls = (embedded = false) => (
     <div
@@ -1745,12 +1919,15 @@ function App() {
       {assistantVisited && (
         <HermesAssistantPanel
           canUndo={agentUndoAvailable}
+          canvasHasContent={latestScene.current.elements.some((element) => !element.isDeleted)}
           onApplyPlan={applyAgentPlan}
+          onClearSelection={clearAssistantSelection}
           onClose={closeAssistant}
           onConnectionChange={setHermesConnected}
           onGeneratePlan={generateAgentPlan}
           onUndoPlan={undoAgentPlan}
           open={!preview && assistantOpen}
+          selectionCount={selectedStoryElementIds.length}
         />
       )}
 

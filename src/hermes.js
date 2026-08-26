@@ -174,9 +174,12 @@ export async function testHermesConnection(connection, WebSocketImpl = globalThi
   }
 }
 
-async function runHermesPrompt(connection, prompt, WebSocketImpl) {
+async function runHermesPrompt(connection, prompt, WebSocketImpl, signal) {
   const client = createGatewayClient(WebSocketImpl);
+  const abort = () => client.close();
+  signal?.addEventListener("abort", abort, { once: true });
   try {
+    if (signal?.aborted) throw new DOMException("已停止生成。", "AbortError");
     await client.connect(connection);
     const session = await client.request("session.create", { title: "Unfold · content design" });
     const sessionId = String(session?.session_id || "");
@@ -210,11 +213,15 @@ async function runHermesPrompt(connection, prompt, WebSocketImpl) {
         if (matches(event)) finish(reject, String(event.payload?.message || "Hermes 生成失败。"));
       });
       offClose = client.on("close", () => finish(reject, "Hermes Connector 已断开。"));
-      timer = setTimeout(() => finish(reject, "Hermes 生成讲解超时。"), 5 * 60_000);
+      timer = setTimeout(() => finish(reject, "Hermes 响应超时，请重试。"), 2 * 60_000);
     });
     await client.request("prompt.submit", { session_id: sessionId, text: prompt });
     return await answer;
+  } catch (error) {
+    if (signal?.aborted) throw new DOMException("已停止生成。", "AbortError");
+    throw error;
   } finally {
+    signal?.removeEventListener("abort", abort);
     client.close();
   }
 }
@@ -386,6 +393,7 @@ export async function requestHermesLecturePlan(
     makeHermesConnection(connection.token, connection.port),
     buildLecturePrompt(request),
     WebSocketImpl,
+    options.signal,
   );
   return normalizeHermesLecturePlan(parseLecturePlan(answer), elements);
 }

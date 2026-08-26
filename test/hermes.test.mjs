@@ -133,4 +133,15 @@ test("connects directly to the local Hermes Connector and validates the plan", a
   });
   assert.equal(plan.mode, "organize");
   assert.deepEqual(plan.steps[0].elementIds, ["a", "b"]);
+
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    requestHermesLecturePlan(elements, [], "介绍流程", {
+      connection,
+      WebSocketImpl: FakeSocket,
+      signal: controller.signal,
+    }),
+    (error) => error.name === "AbortError",
+  );
 });
