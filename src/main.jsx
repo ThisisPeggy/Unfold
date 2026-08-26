@@ -97,6 +97,7 @@ const STORY_ICON_LABELS = {
   x: "X",
   github: "GitHub",
   whatsapp: "WhatsApp",
+  none: "无图标",
 };
 const LEGACY_COLORS = {
   "#4f7fd8": "#337ea9",
@@ -304,6 +305,7 @@ function HighlighterTool({ active, onToggle, target }) {
 }
 
 function LinkDoodle({ kind, x, y, size }) {
+  if (kind === "none") return null;
   const common = {
     className: "story-link-icon",
     x,
@@ -332,6 +334,7 @@ function LinkDoodle({ kind, x, y, size }) {
 }
 
 function StoryLinkIcon({ element, x, y, size }) {
+  if (getStoryIconKind(element) === "none") return null;
   const image = getStoryIconImage(element);
   if (!image) return <LinkDoodle kind={getStoryIconKind(element)} x={x} y={y} size={size} />;
   const clipId = `story-link-image-${element.id}`;
@@ -1170,9 +1173,11 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
                 }}
               />
               <span>
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <LinkDoodle kind={value} x={0} y={0} size={24} />
-                </svg>
+                {value === "none"
+                  ? <b className="no-icon-option" aria-hidden="true">无</b>
+                  : <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <LinkDoodle kind={value} x={0} y={0} size={24} />
+                  </svg>}
               </span>
             </label>
           ))}
@@ -1209,7 +1214,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
         {uploadError && <p id="link-icon-error" className="field-error" role="alert">{uploadError}</p>}
       </fieldset>
 
-      <fieldset className="link-options">
+      {icon !== "none" && <fieldset className="link-options">
         <legend>图标位置</legend>
         <div className="segmented-options segmented-options--two">
           {[['left', '左侧'], ['right', '右侧']].map(([value, label]) => (
@@ -1228,7 +1233,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
             </label>
           ))}
         </div>
-      </fieldset>
+      </fieldset>}
 
       <div className="link-popover__footer">
         {getStoryHref(element) && <button type="button" className="text-button text-button--danger" onClick={onRemove}>移除链接</button>}
@@ -1241,12 +1246,13 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
 function StoryLink({ active = false, element }) {
   const href = getStoryHref(element);
   const { size, iconX, iconY, underlineY } = storyLinkGeometry(element);
+  const hasIcon = getStoryIconKind(element) !== "none";
   const centerX = element.x + element.width / 2;
   const centerY = element.y + element.height / 2;
   const rotation = `rotate(${(element.angle * 180) / Math.PI} ${centerX} ${centerY})`;
   const underline = `M ${element.x} ${underlineY} C ${element.x + element.width * 0.28} ${underlineY + size * 0.08}, ${element.x + element.width * 0.68} ${underlineY - size * 0.08}, ${element.x + element.width} ${underlineY}`;
-  const hitX = Math.min(element.x, iconX) - size * 0.2;
-  const hitRight = Math.max(element.x + element.width, iconX + size) + size * 0.2;
+  const hitX = (hasIcon ? Math.min(element.x, iconX) : element.x) - size * 0.2;
+  const hitRight = (hasIcon ? Math.max(element.x + element.width, iconX + size) : element.x + element.width) + size * 0.2;
 
   return (
     <a
@@ -1288,15 +1294,28 @@ function StoryView({ scene, onExit }) {
     () => scene?.elements?.filter((element) => !element.isDeleted) ?? [],
     [scene],
   );
+  const linkedElements = useMemo(
+    () => visibleElements.filter(getStoryHref),
+    [visibleElements],
+  );
+  const storyPadding = useMemo(
+    () => Math.max(
+      STORY_PADDING,
+      ...linkedElements
+        .filter((element) => getStoryIconKind(element) !== "none")
+        .map((element) => storyLinkGeometry(element).size * 1.5),
+    ),
+    [linkedElements],
+  );
   const bounds = useMemo(
     () => (visibleElements.length ? getCommonBounds(visibleElements) : [0, 0, 1, 1]),
     [visibleElements],
   );
   const frame = {
-    x: bounds[0] - STORY_PADDING,
-    y: bounds[1] - STORY_PADDING,
-    width: Math.max(1, bounds[2] - bounds[0] + STORY_PADDING * 2),
-    height: Math.max(1, bounds[3] - bounds[1] + STORY_PADDING * 2),
+    x: bounds[0] - storyPadding,
+    y: bounds[1] - storyPadding,
+    width: Math.max(1, bounds[2] - bounds[0] + storyPadding * 2),
+    height: Math.max(1, bounds[3] - bounds[1] + storyPadding * 2),
   };
   const steps = useMemo(
     () => getStorySteps(visibleElements, scene?.storyPath),
@@ -1354,7 +1373,7 @@ function StoryView({ scene, onExit }) {
       elements: visibleElements,
       appState: { ...scene.appState, exportBackground: false },
       files: scene.files,
-      exportPadding: STORY_PADDING,
+      exportPadding: storyPadding,
     })
       .then((svg) => {
         objectUrl = URL.createObjectURL(
@@ -1369,13 +1388,12 @@ function StoryView({ scene, onExit }) {
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [scene, visibleElements]);
+  }, [scene, storyPadding, visibleElements]);
 
   if (!scene || !visibleElements.length || !svgUrl) {
     return <p className="story-loading" role="status">正在整理画面…</p>;
   }
 
-  const linkedElements = visibleElements.filter(getStoryHref);
   const storyText = visibleElements
     .filter((element) => element.type === "text")
     .map((element) => element.text)

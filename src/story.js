@@ -2,6 +2,7 @@ export const STORY_ICON_KINDS = [
   "camera", "page", "link",
   "instagram", "linkedin", "youtube",
   "x", "github", "whatsapp",
+  "none",
 ];
 
 export function storyIconKind(href = "") {

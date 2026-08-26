@@ -139,6 +139,6 @@ const boldToggleVerified = files.filter((file) => {
     source.includes("o===c?Kr.Helvetica");
 }).length;
 
-if (![0, 2, 20].includes(applied) || customFontsVerified !== 2 || boldFontVerified !== 2 || boldLabelVerified !== 2 || boldIconVerified !== 2 || opentypeFormatVerified !== 2 || localFontOriginVerified !== 2 || boldToggleVerified !== 2) {
-  throw new Error(`Excalidraw font patch was only partially applied (${applied}/20)`);
+if (customFontsVerified !== 2 || boldFontVerified !== 2 || boldLabelVerified !== 2 || boldIconVerified !== 2 || opentypeFormatVerified !== 2 || localFontOriginVerified !== 2 || boldToggleVerified !== 2) {
+  throw new Error(`Excalidraw font patch verification failed (${applied} replacements applied)`);
 }

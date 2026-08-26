@@ -21,6 +21,7 @@ import {
 
 test("chooses a doodle and places it beside linked elements", () => {
   assert.deepEqual(STORY_ICON_KINDS.slice(0, 3), ["camera", "page", "link"]);
+  assert.ok(STORY_ICON_KINDS.includes("none"));
   assert.equal(storyIconKind("https://instagram.com/example"), "instagram");
   assert.equal(storyIconKind("https://linkedin.com/in/example"), "linkedin");
   assert.equal(storyIconKind("https://youtube.com/@example"), "youtube");
@@ -38,6 +39,9 @@ test("chooses a doodle and places it beside linked elements", () => {
   linked.customData.storyIcon = "camera";
   linked.customData.storyIconSide = "right";
   assert.equal(getStoryIconKind(linked), "camera");
+  linked.customData.storyIcon = "none";
+  assert.equal(getStoryIconKind(linked), "none");
+  linked.customData.storyIcon = "camera";
   linked.customData.storyIconImage = "data:image/webp;base64,AAAA";
   assert.equal(getStoryIconImage(linked), "data:image/webp;base64,AAAA");
   linked.customData.storyIconImage = "data:image/svg+xml,<svg onload=alert(1)>";
