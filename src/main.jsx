@@ -232,6 +232,14 @@ function SendIcon() {
   );
 }
 
+function StopIcon() {
+  return (
+    <svg className="assistant-stop-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <rect x="7" y="7" width="10" height="10" rx="2" />
+    </svg>
+  );
+}
+
 function storyElementLabel(element) {
   const text = element?.text?.trim().replace(/\s+/g, " ");
   if (text) return text;
@@ -769,7 +777,6 @@ function HermesAssistantPanel({
             {busy && (
               <div className="assistant-typing">
                 <span role="status"><i /><i /><i />Hermes 正在思考…</span>
-                <button type="button" onClick={() => generationRef.current?.abort()}>停止</button>
               </div>
             )}
           </div>
@@ -779,7 +786,7 @@ function HermesAssistantPanel({
               <button type="button" onClick={onClearSelection}>清除选区</button>
             </div>
           )}
-          <form className="assistant-composer" onSubmit={send}>
+          <form className="assistant-composer" aria-busy={busy} onSubmit={send}>
             <textarea
               ref={composerRef}
               rows="1"
@@ -791,12 +798,19 @@ function HermesAssistantPanel({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
+                  if (!busy) event.currentTarget.form?.requestSubmit();
                 }
               }}
             />
             <span className="assistant-input-meta" aria-hidden="true">{input.length}/600</span>
-            <button type="submit" disabled={!input.trim() || busy} aria-label="发送消息"><SendIcon /></button>
+            <button
+              type={busy ? "button" : "submit"}
+              disabled={!busy && !input.trim()}
+              aria-label={busy ? "停止生成" : "发送消息"}
+              onClick={busy ? () => generationRef.current?.abort() : undefined}
+            >
+              {busy ? <StopIcon /> : <SendIcon />}
+            </button>
           </form>
         </>
       )}
