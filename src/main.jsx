@@ -14,7 +14,15 @@ import {
 import "@excalidraw/excalidraw/index.css";
 import "./styles.css";
 import AssistantMascot from "./AssistantMascot.jsx";
-import { decodeScene, encodeScene, readScene, writeScene } from "./storage.js";
+import {
+  decodeScene,
+  encodeScene,
+  isSceneId,
+  readScene,
+  sceneIdFromPath,
+  writeScene,
+} from "./storage.js";
+import { missingArrowhead } from "./tool-state.js";
 import {
   clearHermesConnection,
   createHermesConnection,
@@ -44,6 +52,7 @@ import {
 
 const STORAGE_KEY = "story-canvas.scene.v1";
 const PAPER = "#ffffff";
+const DEFAULT_STROKE_COLOR = "#37352f";
 const STORY_PADDING = 32;
 const HIGHLIGHTS = ["#337ea9", "#448361", "#9f6b53"];
 const HIGHLIGHT_WIDTHS = [12, 20, 32];
@@ -63,13 +72,18 @@ function hermesConnectionMessage(error) {
 }
 
 function AssistantMessageText({ text }) {
+  const normalized = String(text).replaceAll("\\n", "\n");
   return (
     <p className="assistant-message-text">
-      {String(text).split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
-        /^https?:\/\//.test(part)
-          ? <a key={`${index}-${part}`} href={part} target="_blank" rel="noreferrer">{part}</a>
-          : part,
-      )}
+      {normalized.split(/(\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g).map((part, index) => {
+        if (/^https?:\/\//.test(part)) {
+          return <a key={`${index}-${part}`} href={part} target="_blank" rel="noreferrer">{part}</a>;
+        }
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return <strong key={`${index}-${part}`}>{part.slice(2, -2)}</strong>;
+        }
+        return part;
+      })}
     </p>
   );
 }
@@ -186,18 +200,13 @@ function withoutNativeLinks(scene) {
           : element,
       ),
     ),
-    appState: { ...scene.appState, viewBackgroundColor: PAPER },
+    appState: {
+      ...scene.appState,
+      viewBackgroundColor: PAPER,
+      currentItemStrokeColor: DEFAULT_STROKE_COLOR,
+      currentItemOpacity: 100,
+    },
   };
-}
-
-function EyeIcon({ crossed = false }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" />
-      <circle cx="12" cy="12" r="2.5" />
-      {crossed && <path d="m4 4 16 16" />}
-    </svg>
-  );
 }
 
 function ChevronIcon({ direction }) {
@@ -666,6 +675,12 @@ function HermesAssistantPanel({
     onClose();
   };
 
+  const clearConversation = () => {
+    setMessages([]);
+    setInput("");
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
   return (
     <aside
       ref={panelRef}
@@ -678,7 +693,20 @@ function HermesAssistantPanel({
     >
       <header>
         <h2 id="hermes-assistant-title">助手 <span>· Hermes</span></h2>
-        <button type="button" className="assistant-icon-button" aria-label="关闭 Hermes" onClick={closePanel}>−</button>
+        <div className="assistant-header-actions">
+          <button
+            type="button"
+            className="assistant-icon-button"
+            aria-label="清空对话"
+            disabled={busy || !messages.length}
+            onClick={clearConversation}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M4.9 8.5A8 8 0 1 1 4 14M4.9 8.5V4m0 4.5H9.4" />
+            </svg>
+          </button>
+          <button type="button" className="assistant-icon-button" aria-label="关闭 Hermes" onClick={closePanel}>−</button>
+        </div>
       </header>
       <span className="visually-hidden" role="status" aria-live="polite">
         {copied === "command" ? "安装命令已复制" : copied === "token" ? "配对口令已复制" : ""}
@@ -1446,7 +1474,8 @@ function App() {
     () => new URLSearchParams(location.hash.slice(1)).get("scene"),
     [],
   );
-  const isShared = Boolean(sharedPayload);
+  const sharedSceneId = useMemo(() => sceneIdFromPath(location.pathname), []);
+  const isShared = Boolean(sharedPayload || sharedSceneId);
   const localScene = useMemo(
     () => withoutNativeLinks(readScene(localStorage, STORAGE_KEY) ?? starterScene()),
     [],
@@ -1536,8 +1565,6 @@ function App() {
         currentItemStrokeStyle: "solid",
         currentItemRoughness: 0,
         currentItemOpacity: 30,
-        currentItemStartArrowhead: null,
-        currentItemEndArrowhead: null,
       },
     });
     excalidrawAPI?.setActiveTool({ type: "freedraw", locked: true });
@@ -1659,8 +1686,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!sharedPayload) return;
-    decodeScene(sharedPayload)
+    if (!isShared) return;
+    const loadScene = sharedPayload
+      ? decodeScene(sharedPayload)
+      : fetch(`/api/scenes?id=${sharedSceneId}`).then(async (response) => {
+        if (!response.ok) throw new Error("Shared scene not found");
+        return decodeScene(await response.text());
+      });
+
+    loadScene
       .then((decodedScene) => {
         const nextScene = withoutNativeLinks(decodedScene);
         latestScene.current = nextScene;
@@ -1670,7 +1704,7 @@ function App() {
         setShareError(true);
         setScene(starterScene());
       });
-  }, [sharedPayload]);
+  }, [isShared, sharedPayload, sharedSceneId]);
 
   useEffect(() => {
     if (preview || !excalidrawAPI) {
@@ -1691,9 +1725,23 @@ function App() {
     };
   }, [excalidrawAPI, preview]);
 
+  useEffect(() => {
+    if (!highlighterActive) {
+      excalidrawAPI?.updateScene({
+        appState: {
+          currentItemStrokeColor: DEFAULT_STROKE_COLOR,
+          currentItemOpacity: 100,
+        },
+      });
+    }
+  }, [excalidrawAPI, highlighterActive]);
+
   const save = useCallback((elements, appState, files) => {
     window.clearTimeout(saveTimer.current);
     setSaveState("saving");
+    if (missingArrowhead(appState)) {
+      excalidrawAPI?.updateScene({ appState: { currentItemEndArrowhead: "arrow" } });
+    }
     if (highlighterActive && appState.activeTool?.type !== "freedraw") {
       setHighlighterActive(false);
     }
@@ -1739,8 +1787,14 @@ function App() {
     if (publishState === "working") return;
     setPublishState("working");
     try {
-      const url = new URL(location.href);
-      url.hash = `scene=${await encodeScene(latestScene.current)}`;
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: await encodeScene(latestScene.current),
+      });
+      const { id } = response.ok ? await response.json() : {};
+      if (!isSceneId(id)) throw new Error("Publishing failed");
+      const url = new URL(`/s/${id}`, location.origin);
       try {
         await navigator.clipboard.writeText(url.href);
         setPublishState("copied");
@@ -1891,11 +1945,26 @@ function App() {
     );
     if (plan.mode === "chat") return plan;
     if (plan.mode !== "create") return { ...plan, sourceRevision, scopeElementIds };
-    const generated = createGeneratedLecture(
-      plan.document,
-      () => crypto.randomUUID(),
-      FONT_FAMILY.Helvetica,
-    );
+    const generated = plan.visual
+      ? (() => {
+          const ids = new Map(plan.visual.elements.map(({ key }) => [key, crypto.randomUUID()]));
+          return {
+            elements: plan.visual.elements.map(({ key, ...element }) => ({
+              id: ids.get(key),
+              ...element,
+              ...(element.type === "text" ? { fontFamily: FONT_FAMILY.Helvetica } : {}),
+            })),
+            steps: plan.visual.steps.map(({ elementKeys, ...step }) => ({
+              ...step,
+              elementIds: elementKeys.map((key) => ids.get(key)),
+            })),
+          };
+        })()
+      : createGeneratedLecture(
+          plan.document,
+          () => crypto.randomUUID(),
+          FONT_FAMILY.Helvetica,
+        );
     return {
       ...plan,
       ...generated,
@@ -2045,7 +2114,7 @@ function App() {
         </button>
       )}
       <button
-        className="control-button"
+        className="control-button control-button--preview"
         type="button"
         title={preview ? "返回编辑" : "讲解模式"}
         aria-pressed={preview}
@@ -2059,7 +2128,6 @@ function App() {
           setPreview((value) => !value);
         }}
       >
-        <EyeIcon crossed={preview} />
         <span className="control-button__label">{preview ? "返回编辑" : "讲解模式"}</span>
       </button>
       {!preview && (

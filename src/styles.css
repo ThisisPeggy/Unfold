@@ -314,9 +314,29 @@ body,
   cursor: pointer;
 }
 
-.assistant-icon-button:hover {
+.assistant-header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.assistant-icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.assistant-icon-button:hover:not(:disabled) {
   color: var(--tale-ink);
   background: var(--tale-surface-hover);
+}
+
+.assistant-icon-button:disabled {
+  cursor: default;
+  opacity: 0.3;
 }
 
 .assistant-icon-button:focus-visible,
@@ -2062,13 +2082,18 @@ body,
     white-space: nowrap;
   }
 
-  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--publish) {
+  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--preview, .control-button--publish) {
     width: 32px;
     justify-content: center;
     padding: 0;
   }
 
   .canvas-controls--embedded .control-button--publish {
+    width: auto;
+    padding: 0 8px;
+  }
+
+  .canvas-controls--embedded .control-button--preview {
     width: auto;
     padding: 0 8px;
   }

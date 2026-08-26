@@ -16,7 +16,24 @@ export function writeScene(storage, key, scene) {
   }
 }
 
-const MAX_SHARED_SCENE_BYTES = 1_500_000;
+export const MAX_SHARED_SCENE_BYTES = 1_500_000;
+export const MAX_ENCODED_SCENE_LENGTH = MAX_SHARED_SCENE_BYTES * 2;
+
+export function isEncodedScene(value) {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_ENCODED_SCENE_LENGTH &&
+    /^[\w-]+$/.test(value);
+}
+
+export function isSceneId(value) {
+  return typeof value === "string" && /^(?:[\w-]{12}|[a-f0-9]{32})$/.test(value);
+}
+
+export function sceneIdFromPath(pathname) {
+  const id = /^\/s\/([^/]+)\/?$/.exec(pathname)?.[1];
+  return isSceneId(id) ? id : null;
+}
 
 function toBase64Url(bytes) {
   let binary = "";
@@ -27,7 +44,7 @@ function toBase64Url(bytes) {
 }
 
 function fromBase64Url(value) {
-  if (!/^[\w-]+$/.test(value) || value.length > MAX_SHARED_SCENE_BYTES * 2) {
+  if (!isEncodedScene(value)) {
     throw new Error("Invalid shared scene");
   }
   const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));

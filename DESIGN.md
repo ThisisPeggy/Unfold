@@ -20,7 +20,7 @@ Unfold（迹·叙）is a quiet white paper surface for hand-drawn stories, expla
 
 # Colors
 
-Use white paper and Notion-like near-black ink. Interface states use restrained blue; authored accents use muted blue, green, and brown. Avoid gradients, saturated panels, and decorative color blocks.
+Use white paper and Notion-like near-black ink; new authored marks default to that ink at full opacity. Interface states use restrained blue; other authored accents use muted blue, green, and brown. Avoid gradients, saturated panels, and decorative color blocks.
 
 # Typography
 
@@ -40,7 +40,7 @@ Controls use 6px corners. Keep the control group itself visually transparent so 
 
 # Components
 
-The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as Unfold（迹·叙）and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Unfold story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker uses Excalidraw free draw with three widths, 30% opacity, and no roughness, so users can drag a natural translucent stroke over any phrase. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
+The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as Unfold（迹·叙）and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Unfold story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker uses Excalidraw free draw with three widths, 30% opacity, and no roughness, so users can drag a natural translucent stroke over any phrase. Hermes composes freely from safe canvas primitives; named layouts are inspiration and fallback, not templates it must follow. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
 
 # Do's and Don'ts
 

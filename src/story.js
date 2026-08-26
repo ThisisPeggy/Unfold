@@ -85,6 +85,120 @@ export function createGeneratedLecture(document, createId = () => globalThis.cry
   });
   steps.push({ elementIds: introIds, title: document.title, note: document.opening || document.subtitle });
 
+  if (document.layout === "radial") {
+    const centerX = 600;
+    const centerY = 650;
+    const nodeWidth = 300;
+    const nodeHeight = 150;
+    document.sections.forEach((section, index) => {
+      const ids = [];
+      const angle = -Math.PI / 2 + index * 2 * Math.PI / document.sections.length;
+      const x = centerX + Math.cos(angle) * 450 - nodeWidth / 2;
+      const y = centerY + Math.sin(angle) * 300 - nodeHeight / 2;
+      const color = colors[index % colors.length];
+      add(ids, {
+        type: "arrow", x: centerX, y: centerY,
+        points: [[0, 0], [x + nodeWidth / 2 - centerX, y + nodeHeight / 2 - centerY]],
+        strokeColor: color, strokeWidth: 2, endArrowhead: "arrow", roughness: 1,
+      });
+      add(ids, {
+        type: "ellipse", x, y, width: nodeWidth, height: nodeHeight,
+        backgroundColor: `${color}18`, fillStyle: "solid", strokeColor: color,
+        strokeWidth: 2, roughness: 1,
+      });
+      add(ids, {
+        type: "text", x: x + 34, y: y + 34, text: wrapCanvasText(section.title, 18),
+        fontFamily, fontSize: 25, strokeColor: "#37352f",
+      });
+      add(ids, {
+        type: "text", x: x + 34, y: y + 80, text: wrapCanvasText(section.body, 28),
+        fontFamily, fontSize: 17, strokeColor: "#56534e",
+      });
+      steps.push({ elementIds: ids, title: section.title, note: section.narration });
+    });
+    const closingIds = [];
+    add(closingIds, {
+      type: "ellipse", x: centerX - 190, y: centerY - 95, width: 380, height: 190,
+      backgroundColor: "#f3f7f5", fillStyle: "solid", strokeColor: "#448361",
+      strokeWidth: 2, roughness: 1,
+    });
+    add(closingIds, {
+      type: "text", x: centerX - 145, y: centerY - 48,
+      text: wrapCanvasText(document.closing.title, 22),
+      fontFamily, fontSize: 28, strokeColor: "#356a50",
+    });
+    if (document.closing.body) add(closingIds, {
+      type: "text", x: centerX - 145, y: centerY + 8,
+      text: wrapCanvasText(document.closing.body, 34),
+      fontFamily, fontSize: 17, strokeColor: "#4d6257",
+    });
+    steps.push({
+      elementIds: closingIds,
+      title: document.closing.title,
+      note: document.closing.narration || document.closing.body,
+    });
+    return { elements, steps };
+  }
+
+  if (document.layout === "layers") {
+    let y = 300;
+    let previousBottom = null;
+    document.sections.forEach((section, index) => {
+      const ids = [];
+      const x = 80 + index * 50;
+      const width = 1040 - index * 100;
+      const body = wrapCanvasText(section.body, Math.max(28, 58 - index * 5));
+      const height = Math.max(160, 104 + body.split("\n").length * 23);
+      const color = colors[index % colors.length];
+      if (previousBottom) add(ids, {
+        type: "arrow", x: 600, y: previousBottom,
+        points: [[0, 0], [0, y - previousBottom]],
+        strokeColor: "#b8b6b1", strokeWidth: 2, endArrowhead: "arrow", roughness: 1,
+      });
+      add(ids, {
+        type: "rectangle", x, y, width, height,
+        backgroundColor: `${color}12`, fillStyle: "solid", strokeColor: color,
+        strokeWidth: 2, roughness: 1, roundness: { type: 3 },
+      });
+      add(ids, {
+        type: "text", x: x + 30, y: y + 28, text: `${index + 1}  ${wrapCanvasText(section.title, 30)}`,
+        fontFamily, fontSize: 26, strokeColor: "#37352f",
+      });
+      add(ids, {
+        type: "text", x: x + 30, y: y + 82, text: body,
+        fontFamily, fontSize: 18, strokeColor: "#56534e",
+      });
+      steps.push({ elementIds: ids, title: section.title, note: section.narration });
+      previousBottom = y + height;
+      y = previousBottom + 48;
+    });
+    const closingIds = [];
+    if (previousBottom) add(closingIds, {
+      type: "arrow", x: 600, y: previousBottom,
+      points: [[0, 0], [0, y - previousBottom]],
+      strokeColor: "#b8b6b1", strokeWidth: 2, endArrowhead: "arrow", roughness: 1,
+    });
+    add(closingIds, {
+      type: "rectangle", x: 260, y, width: 680, height: 170,
+      backgroundColor: "#f3f7f5", fillStyle: "solid", strokeColor: "#448361",
+      strokeWidth: 2, roughness: 1, roundness: { type: 3 },
+    });
+    add(closingIds, {
+      type: "text", x: 300, y: y + 32, text: wrapCanvasText(document.closing.title, 30),
+      fontFamily, fontSize: 29, strokeColor: "#356a50",
+    });
+    if (document.closing.body) add(closingIds, {
+      type: "text", x: 300, y: y + 90, text: wrapCanvasText(document.closing.body, 48),
+      fontFamily, fontSize: 18, strokeColor: "#4d6257",
+    });
+    steps.push({
+      elementIds: closingIds,
+      title: document.closing.title,
+      note: document.closing.narration || document.closing.body,
+    });
+    return { elements, steps };
+  }
+
   const cardWidth = 480;
   const sectionBodies = document.sections.map((section) => wrapCanvasText(section.body, 34));
   const cardHeight = Math.max(

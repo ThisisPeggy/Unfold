@@ -19,7 +19,7 @@ test("connects directly to the local Hermes Connector and validates the plan", a
   assert.equal(generated.token, "0a".repeat(32));
   assert.match(hermesConnectorSetupCommand("MacIntel"), /install\.sh/);
   assert.match(hermesConnectorSetupCommand("Win32"), /install\.ps1/);
-  assert.match(hermesConnectorSetupCommand("MacIntel"), /-Tale-Hermes-Connector/);
+  assert.match(hermesConnectorSetupCommand("MacIntel"), /Unfold-Hermes-Connector/);
   assert.deepEqual(buildHermesLectureRequest(elements, [], "介绍流程").elements[0], {
     id: "a",
     type: "text",
@@ -75,6 +75,7 @@ test("connects directly to the local Hermes Connector and validates the plan", a
       closing: { title: "形成地图", body: "持续更新", narration: "让地图成为共同语言。" },
     } }, elements),
     { mode: "create", document: {
+      layout: "flow",
       title: "客户地图",
       subtitle: "把客户放回真实语境",
       opening: "从问题开始。",
@@ -146,4 +147,35 @@ test("connects directly to the local Hermes Connector and validates the plan", a
     }),
     (error) => error.name === "AbortError",
   );
+});
+
+test("accepts a safe freeform visual canvas without restricting its composition", () => {
+  const plan = normalizeHermesLecturePlan({
+    mode: "create",
+    document: {
+      layout: "constellation",
+      title: "系统",
+      subtitle: "自由构图",
+      opening: "从关系开始。",
+      sections: [
+        { title: "一", body: "内容一", narration: "讲解一" },
+        { title: "二", body: "内容二", narration: "讲解二" },
+        { title: "三", body: "内容三", narration: "讲解三" },
+      ],
+      closing: { title: "结论", body: "形成整体", narration: "总结" },
+    },
+    visual: {
+      elements: [
+        { key: "title", type: "text", x: 80, y: 60, text: "系统", fontSize: 90 },
+        { key: "core", type: "diamond", x: 460, y: 300, width: 280, height: 180, backgroundColor: "#448361" },
+        { key: "link", type: "arrow", x: 600, y: 480, points: [[0, 0], [0, 200]], strokeColor: "#oops" },
+      ],
+      steps: [{ elementKeys: ["title", "core", "missing"], title: "全景" }],
+    },
+  }, elements);
+
+  assert.equal(plan.document.layout, "constellation");
+  assert.equal(plan.visual.elements[0].fontSize, 64);
+  assert.equal(plan.visual.elements[2].strokeColor, "#37352f");
+  assert.deepEqual(plan.visual.steps[0].elementKeys, ["title", "core"]);
 });

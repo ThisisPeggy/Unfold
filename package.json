@@ -4,12 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "postinstall": "node scripts/patch-excalidraw-fonts.mjs",
+    "dev": "vite --force --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
+    "@vercel/blob": "^2.8.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^8.2.2"

@@ -152,6 +152,27 @@ test("grows generated cards for long canvas copy", () => {
   assert.ok(sectionCard.height > 220);
 });
 
+test("renders genuinely different radial and layered lecture layouts", () => {
+  const document = {
+    title: "系统",
+    subtitle: "",
+    opening: "结构说明",
+    sections: [
+      { title: "一", body: "内容一", narration: "讲解一" },
+      { title: "二", body: "内容二", narration: "讲解二" },
+      { title: "三", body: "内容三", narration: "讲解三" },
+    ],
+    closing: { title: "核心", body: "共同目标", narration: "总结" },
+  };
+  const ids = () => { let id = 0; return () => `layout-${++id}`; };
+  const radial = createGeneratedLecture({ ...document, layout: "radial" }, ids());
+  const layers = createGeneratedLecture({ ...document, layout: "layers" }, ids());
+
+  assert.ok(radial.elements.filter((element) => element.type === "ellipse").length >= 4);
+  assert.ok(layers.elements.some((element) => element.type === "rectangle" && element.width === 1040));
+  assert.equal(radial.steps.length, layers.steps.length);
+});
+
 test("snaps a highlighter stroke to the crossed text characters", () => {
   const text = {
     type: "text",
