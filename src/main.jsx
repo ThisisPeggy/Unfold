@@ -1977,9 +1977,6 @@ function App() {
         </MainMenu>
         <WelcomeScreen>
           <WelcomeScreen.Center>
-            <WelcomeScreen.Center.Logo>
-              <span className="welcome-mark">迹·叙</span>
-            </WelcomeScreen.Center.Logo>
             <WelcomeScreen.Center.Heading>
               把经历、想法和故事画出来。
             </WelcomeScreen.Center.Heading>

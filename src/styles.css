@@ -2005,14 +2005,6 @@ body,
   transform: translateX(-50%);
 }
 
-.welcome-mark {
-  color: var(--tale-ink);
-  font-family: var(--tale-font);
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.045em;
-}
-
 @media (max-width: 900px) {
   .canvas-controls--embedded {
     gap: 4px;
