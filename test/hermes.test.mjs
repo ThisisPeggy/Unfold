@@ -30,6 +30,28 @@ test("connects directly to the local Hermes Connector and validates the plan", a
     height: 20,
     hasLink: false,
   });
+  const scoped = buildHermesLectureRequest(elements, [], "只讲箭头", {
+    selectedElementIds: ["b"],
+    draftPlan: { mode: "organize", steps: [{ elementIds: ["b"], title: "旧方案" }], extra: "ignored" },
+    conversation: [
+      { role: "user", text: "你好" },
+      { role: "assistant", text: "你好，需要什么帮助？" },
+    ],
+  });
+  assert.equal(scoped.scope, "selection");
+  assert.deepEqual(scoped.elements.map((element) => element.id), ["b"]);
+  assert.deepEqual(scoped.previousDraft, {
+    mode: "organize",
+    steps: [{ elementIds: ["b"], title: "旧方案", note: "" }],
+  });
+  assert.deepEqual(scoped.conversation, [
+    { role: "user", text: "你好" },
+    { role: "assistant", text: "你好，需要什么帮助？" },
+  ]);
+  assert.deepEqual(
+    normalizeHermesLecturePlan({ mode: "chat", message: "当然可以。" }, elements),
+    { mode: "chat", message: "当然可以。" },
+  );
   assert.deepEqual(
     normalizeHermesLecturePlan({ steps: [
       { elementIds: ["a", "missing"], title: "开场", note: "先介绍。" },
@@ -105,7 +127,10 @@ test("connects directly to the local Hermes Connector and validates the plan", a
     }
   }
   const connection = makeHermesConnection("a".repeat(64));
-  const plan = await requestHermesLecturePlan(elements, [], "介绍流程", connection, FakeSocket);
+  const plan = await requestHermesLecturePlan(elements, [], "介绍流程", {
+    connection,
+    WebSocketImpl: FakeSocket,
+  });
   assert.equal(plan.mode, "organize");
   assert.deepEqual(plan.steps[0].elementIds, ["a", "b"]);
 });

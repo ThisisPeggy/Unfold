@@ -86,7 +86,11 @@ export function createGeneratedLecture(document, createId = () => globalThis.cry
   steps.push({ elementIds: introIds, title: document.title, note: document.opening || document.subtitle });
 
   const cardWidth = 480;
-  const cardHeight = 220;
+  const sectionBodies = document.sections.map((section) => wrapCanvasText(section.body, 34));
+  const cardHeight = Math.max(
+    220,
+    ...sectionBodies.map((body) => 120 + body.split("\n").length * 25),
+  );
   const cardGap = 80;
   const rowGap = 72;
   const sectionTop = 300;
@@ -130,7 +134,7 @@ export function createGeneratedLecture(document, createId = () => globalThis.cry
       fontFamily, fontSize: 27, strokeColor: "#37352f",
     });
     add(ids, {
-      type: "text", x: x + 32, y: y + 96, text: wrapCanvasText(section.body, 34),
+      type: "text", x: x + 32, y: y + 96, text: sectionBodies[index],
       fontFamily, fontSize: 19, strokeColor: "#56534e",
     });
     steps.push({ elementIds: ids, title: section.title, note: section.narration });
@@ -145,8 +149,10 @@ export function createGeneratedLecture(document, createId = () => globalThis.cry
     points: [[0, 0], [600 - (previous.x + cardWidth / 2), closingY - previous.y - cardHeight]],
     strokeColor: "#b8b6b1", strokeWidth: 2, endArrowhead: "arrow", roughness: 1,
   });
+  const closingBody = wrapCanvasText(document.closing.body, 62);
+  const closingHeight = Math.max(170, 118 + closingBody.split("\n").length * 25);
   add(closingIds, {
-    type: "rectangle", x: 80, y: closingY, width: 1040, height: 170,
+    type: "rectangle", x: 80, y: closingY, width: 1040, height: closingHeight,
     backgroundColor: "#f3f7f5", fillStyle: "solid", strokeColor: "#cad8d1",
     strokeWidth: 1, roughness: 1, roundness: { type: 3 },
   });
@@ -155,7 +161,7 @@ export function createGeneratedLecture(document, createId = () => globalThis.cry
     fontFamily, fontSize: 30, strokeColor: "#356a50",
   });
   if (document.closing.body) add(closingIds, {
-    type: "text", x: 120, y: closingY + 92, text: wrapCanvasText(document.closing.body, 62),
+    type: "text", x: 120, y: closingY + 92, text: closingBody,
     fontFamily, fontSize: 19, strokeColor: "#4d6257",
   });
   steps.push({
@@ -241,6 +247,37 @@ export function makeStoryPath(elements, storyPath) {
     if (step.storyCamera) entry.camera = step.storyCamera;
     return entry;
   });
+}
+
+export function mergeHermesStoryPath(
+  elements,
+  storyPath,
+  steps,
+  scopeElementIds = [],
+  createId = () => globalThis.crypto.randomUUID(),
+) {
+  const current = makeStoryPath(elements, storyPath);
+  const key = (ids) => [...ids].sort().join("\0");
+  const existing = new Map(current.map((step) => [key(step.elementIds), step]));
+  const generated = steps.map((step) => {
+    const previous = existing.get(key(step.elementIds));
+    return {
+      id: previous?.id ?? createId(),
+      elementIds: step.elementIds,
+      title: step.title,
+      ...(step.note ? { note: step.note } : {}),
+      ...(previous?.camera ? { camera: previous.camera } : {}),
+    };
+  });
+  if (!scopeElementIds.length) return generated;
+  const scope = new Set(scopeElementIds);
+  const firstAffected = current.findIndex((step) => step.elementIds.some((id) => scope.has(id)));
+  const insertAt = current
+    .slice(0, firstAffected < 0 ? current.length : firstAffected)
+    .filter((step) => !step.elementIds.some((id) => scope.has(id))).length;
+  const untouched = current.filter((step) => !step.elementIds.some((id) => scope.has(id)));
+  untouched.splice(insertAt, 0, ...generated);
+  return untouched;
 }
 
 export function stashStoryLinks(elements) {

@@ -32,6 +32,7 @@ import {
   getStoryHref,
   getStorySteps,
   makeStoryPath,
+  mergeHermesStoryPath,
   polishStarterElement,
   safeStoryHref,
   stashStoryLinks,
@@ -44,6 +45,13 @@ const PAPER = "#ffffff";
 const STORY_PADDING = 32;
 const HIGHLIGHTS = ["#337ea9", "#448361", "#9f6b53"];
 const HIGHLIGHT_WIDTHS = [12, 20, 32];
+
+function hermesSceneRevision(scene) {
+  return JSON.stringify([
+    scene.elements.filter((element) => !element.isDeleted).map((element) => [element.id, element.version]),
+    scene.storyPath ?? [],
+  ]);
+}
 const STORY_ICON_LABELS = {
   camera: "照片",
   page: "页面",
@@ -394,10 +402,13 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSte
 }
 
 function HermesAssistantPanel({
+  canUndo,
   onApplyPlan,
   onClose,
   onConnectionChange,
   onGeneratePlan,
+  onUndoPlan,
+  open,
 }) {
   const [connection, setConnection] = useState(() => {
     const saved = readHermesConnection();
@@ -438,16 +449,17 @@ function HermesAssistantPanel({
   }, [connection, onConnectionChange]);
 
   useEffect(() => {
+    if (!open) return undefined;
     const closeOnEscape = (event) => {
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [onClose, open]);
 
   useEffect(() => {
-    if (connectionState === "connected") composerRef.current?.focus();
-  }, [connectionState]);
+    if (open && connectionState === "connected") composerRef.current?.focus();
+  }, [connectionState, open]);
 
   useEffect(() => {
     conversationRef.current?.scrollTo({ top: conversationRef.current.scrollHeight });
@@ -476,25 +488,22 @@ function HermesAssistantPanel({
     const prompt = input.trim();
     if (!prompt || busy || connectionState !== "connected") return;
     const id = crypto.randomUUID();
-    const previousGoals = messages
-      .filter((message) => message.role === "user")
-      .slice(-2)
-      .map((message) => message.text);
+    const conversation = messages.slice(-8).map(({ role, text }) => ({ role, text }));
     setMessages((value) => [...value, { id, role: "user", text: prompt }]);
     setInput("");
     setBusy(true);
     try {
-      const goal = previousGoals.length
-        ? `此前要求：${previousGoals.join("；")}。本次要求：${prompt}`
-        : prompt;
-      const plan = await onGeneratePlan(goal);
+      const draftPlan = [...messages].reverse().find((message) => message.plan)?.plan;
+      const plan = await onGeneratePlan(prompt, draftPlan, conversation);
       setMessages((value) => [...value, {
         id: crypto.randomUUID(),
         role: "assistant",
-        text: plan.mode === "create"
-          ? `内容、大纲和画布已经设计好，共 ${plan.steps.length} 个讲解步骤。`
-          : `我整理了 ${plan.steps.length} 个讲解步骤。`,
-        plan,
+        text: plan.mode === "chat"
+          ? plan.message
+          : plan.mode === "create"
+            ? `内容、大纲和画布已经设计好，共 ${plan.steps.length} 个讲解步骤。`
+            : `我整理了 ${plan.steps.length} 个讲解步骤。`,
+        ...(plan.mode === "chat" ? {} : { plan }),
       }]);
     } catch (error) {
       setMessages((value) => [...value, {
@@ -512,6 +521,7 @@ function HermesAssistantPanel({
     <aside
       id="hermes-assistant-panel"
       className="hermes-assistant-panel"
+      hidden={!open}
       role="dialog"
       aria-modal="false"
       aria-labelledby="hermes-assistant-title"
@@ -584,14 +594,31 @@ function HermesAssistantPanel({
                     </ol>
                     <button
                       type="button"
-                      disabled={message.applied}
+                      disabled={message.applied && !message.undoable}
                       onClick={() => {
-                        onApplyPlan(message.plan);
-                        setMessages((value) => value.map((item) => item.id === message.id ? { ...item, applied: true } : item));
+                        if (message.applied) {
+                          const undoError = onUndoPlan();
+                          setMessages((value) => value.map((item) =>
+                            item.id === message.id
+                              ? undoError
+                                ? { ...item, undoable: false, text: undoError, error: true }
+                                : { ...item, applied: false, undoable: false, text: "已撤销这次 Hermes 更改。", error: false }
+                              : item,
+                          ));
+                          return;
+                        }
+                        const error = onApplyPlan(message.plan);
+                        setMessages((value) => value.map((item) =>
+                          item.id === message.id
+                            ? error
+                              ? { ...item, text: error, error: true }
+                              : { ...item, applied: true, undoable: true, error: false }
+                            : { ...item, undoable: false },
+                        ));
                       }}
                     >
                       {message.applied
-                        ? (message.plan.mode === "create" ? "已创建画布" : "已应用到路径")
+                        ? (message.undoable && canUndo ? "撤销 Hermes 更改" : "已应用")
                         : (message.plan.mode === "create" ? "创建画布并应用" : "应用讲解方案")}
                     </button>
                   </section>
@@ -1184,6 +1211,8 @@ function App() {
   const [highlighterWidth, setHighlighterWidth] = useState(20);
   const [pathEditorOpen, setPathEditorOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantVisited, setAssistantVisited] = useState(false);
+  const [agentUndoAvailable, setAgentUndoAvailable] = useState(false);
   const [hermesConnected, setHermesConnected] = useState(false);
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
   const linkEditorTrigger = useRef(null);
@@ -1191,6 +1220,8 @@ function App() {
   const assistantButtonRef = useRef(null);
   const saveTimer = useRef();
   const publishTimer = useRef();
+  const agentUndoScene = useRef(null);
+  const agentUndoRevision = useRef("");
   const latestScene = useRef(localScene);
   const linkEditorElement = editorView.elements.find(
     (element) => element.id === linkEditorId && !element.isDeleted,
@@ -1484,13 +1515,17 @@ function App() {
     });
   }, [editorView.appState, excalidrawAPI, updateStoryStep]);
 
-  const generateAgentPlan = useCallback(async (goal) => {
+  const generateAgentPlan = useCallback(async (goal, draftPlan, conversation) => {
+    const sourceRevision = hermesSceneRevision(latestScene.current);
+    const scopeElementIds = selectedStoryElementIds;
     const plan = await requestHermesLecturePlan(
       latestScene.current.elements,
       latestScene.current.storyPath,
       goal,
+      { selectedElementIds: scopeElementIds, draftPlan, conversation },
     );
-    if (plan.mode !== "create") return plan;
+    if (plan.mode === "chat") return plan;
+    if (plan.mode !== "create") return { ...plan, sourceRevision, scopeElementIds };
     const generated = createGeneratedLecture(
       plan.document,
       () => crypto.randomUUID(),
@@ -1499,20 +1534,35 @@ function App() {
     return {
       ...plan,
       ...generated,
+      sourceRevision,
+      scopeElementIds,
       elements: convertToExcalidrawElements(generated.elements, { regenerateIds: false }),
     };
-  }, []);
+  }, [selectedStoryElementIds]);
 
   const applyAgentPlan = useCallback((plan) => {
-    const nextPath = plan.steps.map((step) => ({
-      id: crypto.randomUUID(),
-      elementIds: step.elementIds,
-      title: step.title,
-      ...(step.note ? { note: step.note } : {}),
-    }));
+    if (plan.sourceRevision !== hermesSceneRevision(latestScene.current)) {
+      return "画布在方案生成后发生了变化，请让 Hermes 重新生成后再应用。";
+    }
+    agentUndoScene.current = structuredClone(latestScene.current);
+    setAgentUndoAvailable(true);
+    const nextPath = plan.mode === "create"
+      ? plan.steps.map((step) => ({
+          id: crypto.randomUUID(),
+          elementIds: step.elementIds,
+          title: step.title,
+          ...(step.note ? { note: step.note } : {}),
+        }))
+      : mergeHermesStoryPath(
+          latestScene.current.elements,
+          latestScene.current.storyPath,
+          plan.steps,
+          plan.scopeElementIds,
+        );
     if (plan.mode !== "create") {
       commitStoryPath(nextPath);
-      return;
+      agentUndoRevision.current = hermesSceneRevision(latestScene.current);
+      return "";
     }
     const appState = {
       ...latestScene.current.appState,
@@ -1535,11 +1585,37 @@ function App() {
       viewportZoomFactor: 0.82,
       animate: true,
     }));
+    agentUndoRevision.current = hermesSceneRevision(latestScene.current);
+    return "";
   }, [commitStoryPath, excalidrawAPI]);
+
+  const undoAgentPlan = useCallback(() => {
+    const previous = agentUndoScene.current;
+    if (!previous) return "没有可撤销的 Hermes 更改。";
+    if (agentUndoRevision.current !== hermesSceneRevision(latestScene.current)) {
+      agentUndoScene.current = null;
+      agentUndoRevision.current = "";
+      setAgentUndoAvailable(false);
+      return "画布在应用后又有修改，已停止撤销以免覆盖这些修改。";
+    }
+    agentUndoScene.current = null;
+    agentUndoRevision.current = "";
+    setAgentUndoAvailable(false);
+    latestScene.current = previous;
+    editorViewSignature.current = editorLinkSignature(previous.elements, previous.appState);
+    setScene(previous);
+    setEditorView({ elements: previous.elements, appState: previous.appState });
+    setStoryPath(previous.storyPath);
+    excalidrawAPI?.addFiles(Object.values(previous.files ?? {}));
+    excalidrawAPI?.updateScene({ elements: previous.elements, appState: previous.appState });
+    setSaveState(writeScene(localStorage, STORAGE_KEY, previous) ? "saved" : "error");
+    return "";
+  }, [excalidrawAPI]);
 
   const openHermes = useCallback(() => {
     setLinkEditorId(null);
     setPathEditorOpen(false);
+    setAssistantVisited(true);
     setAssistantOpen(true);
   }, []);
 
@@ -1666,12 +1742,15 @@ function App() {
         />
       )}
 
-      {!preview && assistantOpen && (
+      {assistantVisited && (
         <HermesAssistantPanel
+          canUndo={agentUndoAvailable}
           onApplyPlan={applyAgentPlan}
           onClose={closeAssistant}
           onConnectionChange={setHermesConnected}
           onGeneratePlan={generateAgentPlan}
+          onUndoPlan={undoAgentPlan}
+          open={!preview && assistantOpen}
         />
       )}
 

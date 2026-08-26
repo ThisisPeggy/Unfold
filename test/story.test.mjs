@@ -8,6 +8,7 @@ import {
   getStoryHref,
   getStorySteps,
   makeStoryPath,
+  mergeHermesStoryPath,
   polishStarterElement,
   safeStoryHref,
   stashStoryLinks,
@@ -103,4 +104,44 @@ test("creates a complete canvas and lecture path from structured content", () =>
   assert.equal(generated.steps.length, 5);
   assert.equal(new Set(covered).size, generated.elements.length);
   assert.deepEqual(new Set(generated.elements.map((element) => element.type)), new Set(["text", "arrow", "rectangle", "ellipse"]));
+});
+
+test("merges selected Hermes steps without losing untouched steps or cameras", () => {
+  const sceneElements = [
+    { id: "a", type: "text", x: 0, y: 0, width: 20, height: 20 },
+    { id: "b", type: "text", x: 40, y: 0, width: 20, height: 20 },
+  ];
+  const camera = { x: 0, y: 0, width: 100, height: 100 };
+  const merged = mergeHermesStoryPath(
+    sceneElements,
+    [
+      { id: "first", elementIds: ["a"], title: "旧标题", camera },
+      { id: "second", elementIds: ["b"], title: "保留" },
+    ],
+    [{ elementIds: ["a"], title: "新标题", note: "新讲解" }],
+    ["a"],
+    () => "new-id",
+  );
+  assert.deepEqual(merged, [
+    { id: "first", elementIds: ["a"], title: "新标题", note: "新讲解", camera },
+    { id: "second", elementIds: ["b"], title: "保留" },
+  ]);
+});
+
+test("grows generated cards for long canvas copy", () => {
+  const generated = createGeneratedLecture({
+    title: "长内容",
+    subtitle: "",
+    opening: "开场",
+    sections: [
+      { title: "一", body: "长".repeat(300), narration: "讲解一" },
+      { title: "二", body: "短内容", narration: "讲解二" },
+      { title: "三", body: "短内容", narration: "讲解三" },
+    ],
+    closing: { title: "结尾", body: "结束", narration: "结束讲解" },
+  }, (() => { let id = 0; return () => `long-${++id}`; })());
+  const sectionCard = generated.elements.find((element) =>
+    element.type === "rectangle" && element.width === 480,
+  );
+  assert.ok(sectionCard.height > 220);
 });
