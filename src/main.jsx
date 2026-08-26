@@ -1688,7 +1688,7 @@ function App() {
           initialData={scene}
           excalidrawAPI={setExcalidrawAPI}
           langCode="zh-CN"
-          name="Tale"
+          name="Unfold"
           theme="light"
           onChange={save}
           renderTopRightUI={() => renderCanvasControls(true)}
@@ -1715,14 +1715,14 @@ function App() {
           </MainMenu.Group>
           <MainMenu.Separator />
           <MainMenu.ItemCustom className="tale-menu-brand">
-            <strong>Tale</strong>
-            <span>Draw your story.</span>
+            <strong>迹·叙</strong>
+            <span>Unfold your story.</span>
           </MainMenu.ItemCustom>
         </MainMenu>
         <WelcomeScreen>
           <WelcomeScreen.Center>
             <WelcomeScreen.Center.Logo>
-              <span className="welcome-mark">Tale</span>
+              <span className="welcome-mark">迹·叙</span>
             </WelcomeScreen.Center.Logo>
             <WelcomeScreen.Center.Heading>
               把经历、想法和故事画出来。

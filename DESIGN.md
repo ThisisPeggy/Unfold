@@ -16,7 +16,7 @@ shapes:
 
 # Overview
 
-Tale is a quiet white paper surface for hand-drawn stories, explanations, and résumés. Interface chrome should recede until the user needs it.
+Unfold（迹·叙）is a quiet white paper surface for hand-drawn stories, explanations, and résumés. Interface chrome should recede until the user needs it.
 
 # Colors
 
@@ -40,7 +40,7 @@ Controls use 6px corners. Keep the control group itself visually transparent so 
 
 # Components
 
-The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as Tale and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Tale story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker uses Excalidraw free draw with three widths, 30% opacity, and no roughness, so users can drag a natural translucent stroke over any phrase. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
+The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as Unfold（迹·叙）and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Unfold story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker uses Excalidraw free draw with three widths, 30% opacity, and no roughness, so users can drag a natural translucent stroke over any phrase. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
 
 # Do's and Don'ts
 
