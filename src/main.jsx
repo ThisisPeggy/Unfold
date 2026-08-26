@@ -9,6 +9,7 @@ import {
   getCommonBounds,
   MainMenu,
   newElementWith,
+  viewportCoordsToSceneCoords,
   WelcomeScreen,
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
@@ -47,6 +48,7 @@ import {
   stashStoryLinks,
   storyIconKind,
   storyLinkGeometry,
+  textHighlightColor,
   textHighlightRects,
 } from "./story.js";
 
@@ -54,8 +56,6 @@ const STORAGE_KEY = "story-canvas.scene.v1";
 const PAPER = "#ffffff";
 const DEFAULT_STROKE_COLOR = "#37352f";
 const STORY_PADDING = 32;
-const HIGHLIGHTS = ["#337ea9", "#448361", "#9f6b53"];
-const HIGHLIGHT_WIDTHS = [12, 20, 32];
 
 function hermesSceneRevision(scene) {
   return JSON.stringify([
@@ -202,6 +202,12 @@ function withoutNativeLinks(scene) {
     ),
     appState: {
       ...scene.appState,
+      activeTool: {
+        type: "selection",
+        customType: null,
+        locked: false,
+        lastActiveTool: null,
+      },
       viewBackgroundColor: PAPER,
       currentItemStrokeColor: DEFAULT_STROKE_COLOR,
       currentItemOpacity: 100,
@@ -274,18 +280,16 @@ function storyStepLabel(element) {
   return element?.storyTitle?.trim() || storyElementLabel(element);
 }
 
-function HighlighterTool({ active, color, onToggle, onColor, onWidth, target, width }) {
+function HighlighterTool({ active, onToggle, target }) {
   if (!target) return null;
   return createPortal(
     <div className="highlighter-control">
       <button
         className="highlighter-tool"
         type="button"
-        style={{ "--marker-color": color }}
+        style={{ "--marker-color": DEFAULT_STROKE_COLOR }}
         aria-label={active ? "关闭高亮笔" : "使用高亮笔"}
         aria-pressed={active}
-        aria-expanded={active}
-        aria-controls="highlighter-options"
         onClick={onToggle}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -294,40 +298,6 @@ function HighlighterTool({ active, color, onToggle, onColor, onWidth, target, wi
         </svg>
         <span className="highlighter-tool__ink" aria-hidden="true" />
       </button>
-      {active && (
-        <div id="highlighter-options" className="highlighter-colors">
-          <div className="highlighter-options-row" role="radiogroup" aria-label="高亮颜色">
-            {HIGHLIGHTS.map((value, index) => (
-              <button
-                key={value}
-                className="highlighter-color"
-                type="button"
-                role="radio"
-                aria-checked={color === value}
-                aria-label={["蓝色", "绿色", "琥珀色"][index]}
-                onClick={() => onColor(value)}
-              >
-                <span style={{ background: value }} />
-              </button>
-            ))}
-          </div>
-          <div className="highlighter-options-row" role="radiogroup" aria-label="高亮粗细">
-            {HIGHLIGHT_WIDTHS.map((value, index) => (
-              <button
-                key={value}
-                className="highlighter-width"
-                type="button"
-                role="radio"
-                aria-checked={width === value}
-                aria-label={["细", "中", "粗"][index]}
-                onClick={() => onWidth(value)}
-              >
-                <span style={{ height: Math.max(3, value / 3) }} />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>,
     target,
   );
@@ -1496,8 +1466,6 @@ function App() {
   const [toolbarTarget, setToolbarTarget] = useState(null);
   const [linkEditorId, setLinkEditorId] = useState(null);
   const [highlighterActive, setHighlighterActive] = useState(false);
-  const [highlighterColor, setHighlighterColor] = useState("#9f6b53");
-  const [highlighterWidth, setHighlighterWidth] = useState(20);
   const [pathEditorOpen, setPathEditorOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantVisited, setAssistantVisited] = useState(false);
@@ -1509,6 +1477,7 @@ function App() {
   const assistantButtonRef = useRef(null);
   const saveTimer = useRef();
   const publishTimer = useRef();
+  const highlighterPointerUp = useRef(null);
   const agentUndoScene = useRef(null);
   const agentUndoRevision = useRef("");
   const latestScene = useRef(localScene);
@@ -1551,114 +1520,123 @@ function App() {
     setLinkEditorId(elementId);
   }, [excalidrawAPI]);
 
-  const activateHighlighter = useCallback((color, width = highlighterWidth) => {
-    setHighlighterColor(color);
-    setHighlighterWidth(width);
+  const activateHighlighter = useCallback(() => {
     setHighlighterActive(true);
     setLinkEditorId(null);
     setPathEditorOpen(false);
     setAssistantOpen(false);
     excalidrawAPI?.updateScene({
       appState: {
-        currentItemStrokeColor: color,
-        currentItemStrokeWidth: width,
+        currentItemStrokeColor: DEFAULT_STROKE_COLOR,
+        currentItemStrokeWidth: 20,
         currentItemStrokeStyle: "solid",
         currentItemRoughness: 0,
         currentItemOpacity: 30,
       },
     });
     excalidrawAPI?.setActiveTool({ type: "freedraw", locked: true });
-  }, [excalidrawAPI, highlighterWidth]);
+  }, [excalidrawAPI]);
 
   const toggleHighlighter = useCallback(() => {
     if (highlighterActive) {
       setHighlighterActive(false);
       excalidrawAPI?.setActiveTool({ type: "selection" });
     } else {
-      activateHighlighter(highlighterColor);
+      activateHighlighter();
     }
-  }, [activateHighlighter, excalidrawAPI, highlighterActive, highlighterColor]);
+  }, [activateHighlighter, excalidrawAPI, highlighterActive]);
+
+  const captureHighlighterPointerUp = useCallback((activeTool) => {
+    highlighterPointerUp.current = null;
+    if (!highlighterActive || activeTool.type !== "freedraw") return;
+    window.addEventListener("pointerup", (event) => {
+      highlighterPointerUp.current = viewportCoordsToSceneCoords(event, excalidrawAPI.getAppState());
+    }, { once: true });
+  }, [excalidrawAPI, highlighterActive]);
 
   const snapHighlighterToText = useCallback((activeTool, pointerDownState) => {
     if (!highlighterActive || activeTool.type !== "freedraw") return;
-    requestAnimationFrame(() => {
-      const elements = excalidrawAPI?.getSceneElements() ?? [];
-      const strokes = elements.filter((element) =>
-        element.type === "freedraw" &&
-        !element.isDeleted &&
-        !pointerDownState.originalElements.has(element.id),
-      );
-      const texts = elements.filter((element) => element.type === "text" && !element.isDeleted);
-      if (!strokes.length || !texts.length) return;
+    // Excalidraw finalizes immediately after onPointerUp, so keep the replacement in the same undo step.
+    const elements = excalidrawAPI?.getSceneElements() ?? [];
+    const strokes = elements.filter((element) =>
+      element.type === "freedraw" &&
+      !element.isDeleted &&
+      !pointerDownState.originalElements.has(element.id),
+    );
+    if (!strokes.length) return;
+    const texts = elements.filter((element) => element.type === "text" && !element.isDeleted);
 
-      const context = document.createElement("canvas").getContext("2d");
-      if (!context) return;
-      const highlightsByText = new Map();
-      const replacedStrokeIds = new Set();
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return;
+    const highlightsByText = new Map();
+    const replacedStrokeIds = new Set(strokes.map((stroke) => stroke.id));
 
-      for (const stroke of strokes) {
-        const path = stroke.points.map(([x, y]) => ({ x: stroke.x + x, y: stroke.y + y }));
-        for (const text of texts) {
-          const fontFamily = Object.entries(FONT_FAMILY).find(([, value]) => value === text.fontFamily)?.[0]
-            ?? "Helvetica";
-          context.font = `${text.fontSize ?? 20}px "${fontFamily}"`;
-          const rects = textHighlightRects(
-            text,
-            path,
-            stroke.strokeWidth,
-            (value) => context.measureText(value).width,
-          );
-          if (!rects.length) continue;
-          replacedStrokeIds.add(stroke.id);
-          const existing = highlightsByText.get(text.id) ?? [];
-          existing.push(...rects.map((rect) => ({ ...rect, color: stroke.strokeColor })));
-          highlightsByText.set(text.id, existing);
-        }
-      }
-      if (!replacedStrokeIds.size) return;
-
-      const updatedTexts = new Map();
-      const highlights = new Map();
+    for (const stroke of strokes) {
+      const path = [
+        ...stroke.points.map(([x, y]) => ({ x: stroke.x + x, y: stroke.y + y })),
+        ...(highlighterPointerUp.current ? [highlighterPointerUp.current] : []),
+      ];
       for (const text of texts) {
-        const rects = highlightsByText.get(text.id);
-        if (!rects) continue;
-        const groupId = text.customData?.textHighlightGroup ?? crypto.randomUUID();
-        const groupIds = text.groupIds?.includes(groupId)
-          ? text.groupIds
-          : [groupId, ...(text.groupIds ?? [])];
-        updatedTexts.set(text.id, newElementWith(text, {
+        const fontFamily = Object.entries(FONT_FAMILY).find(([, value]) => value === text.fontFamily)?.[0]
+          ?? "Helvetica";
+        context.font = `${text.fontSize ?? 20}px "${fontFamily}"`;
+        const rects = textHighlightRects(
+          text,
+          path,
+          stroke.strokeWidth,
+          (value) => context.measureText(value).width,
+        );
+        if (!rects.length) continue;
+        const existing = highlightsByText.get(text.id) ?? [];
+        existing.push(...rects.map((rect) => ({
+          ...rect,
+          color: textHighlightColor(text.strokeColor),
+        })));
+        highlightsByText.set(text.id, existing);
+      }
+    }
+    const updatedTexts = new Map();
+    const highlights = new Map();
+    for (const text of texts) {
+      const rects = highlightsByText.get(text.id);
+      if (!rects) continue;
+      const groupId = text.customData?.textHighlightGroup ?? crypto.randomUUID();
+      const groupIds = text.groupIds?.includes(groupId)
+        ? text.groupIds
+        : [groupId, ...(text.groupIds ?? [])];
+      updatedTexts.set(text.id, newElementWith(text, {
+        groupIds,
+        customData: { ...text.customData, textHighlightGroup: groupId },
+      }));
+      highlights.set(text.id, convertToExcalidrawElements(
+        rects.map((rect) => ({
+          id: crypto.randomUUID(),
+          type: "rectangle",
+          ...rect,
+          strokeColor: "transparent",
+          backgroundColor: rect.color,
+          fillStyle: "solid",
+          strokeWidth: 1,
+          roughness: 0,
+          roundness: { type: 3 },
+          opacity: 100,
           groupIds,
-          customData: { ...text.customData, textHighlightGroup: groupId },
-        }));
-        highlights.set(text.id, convertToExcalidrawElements(
-          rects.map((rect) => ({
-            id: crypto.randomUUID(),
-            type: "rectangle",
-            ...rect,
-            strokeColor: rect.color,
-            backgroundColor: rect.color,
-            fillStyle: "solid",
-            strokeWidth: 1,
-            roughness: 0,
-            opacity: 30,
-            groupIds,
-            customData: { textHighlightFor: text.id },
-          })),
-          { regenerateIds: false },
-        ));
-      }
+          customData: { textHighlightFor: text.id },
+        })),
+        { regenerateIds: false },
+      ));
+    }
 
-      const nextElements = [];
-      for (const element of elements) {
-        if (highlights.has(element.id)) nextElements.push(...highlights.get(element.id));
-        if (replacedStrokeIds.has(element.id)) {
-          nextElements.push(newElementWith(element, { isDeleted: true }));
-        } else {
-          nextElements.push(updatedTexts.get(element.id) ?? element);
-        }
+    const nextElements = [];
+    for (const element of elements) {
+      if (highlights.has(element.id)) nextElements.push(...highlights.get(element.id));
+      if (replacedStrokeIds.has(element.id)) {
+        nextElements.push(newElementWith(element, { isDeleted: true }));
+      } else {
+        nextElements.push(updatedTexts.get(element.id) ?? element);
       }
-      excalidrawAPI.updateScene({ elements: nextElements });
-    });
+    }
+    excalidrawAPI.updateScene({ elements: nextElements });
   }, [excalidrawAPI, highlighterActive]);
 
   useEffect(
@@ -1755,12 +1733,21 @@ function App() {
       collaborators: _collaborators,
       viewModeEnabled: _viewModeEnabled,
       zenModeEnabled: _zenModeEnabled,
+      activeTool: _activeTool,
       ...savedAppState
     } = appState;
     latestScene.current = {
       ...latestScene.current,
       elements: savedElements,
-      appState: savedAppState,
+      appState: {
+        ...savedAppState,
+        activeTool: {
+          type: "selection",
+          customType: null,
+          locked: false,
+          lastActiveTool: null,
+        },
+      },
       files,
     };
     if (
@@ -1949,10 +1936,13 @@ function App() {
       ? (() => {
           const ids = new Map(plan.visual.elements.map(({ key }) => [key, crypto.randomUUID()]));
           return {
-            elements: plan.visual.elements.map(({ key, ...element }) => ({
+            elements: plan.visual.elements.map(({ key, startKey, endKey, ...element }) => ({
               id: ids.get(key),
               ...element,
               ...(element.type === "text" ? { fontFamily: FONT_FAMILY.Helvetica } : {}),
+              ...(element.label ? { label: { ...element.label, fontFamily: FONT_FAMILY.Helvetica } } : {}),
+              ...(startKey && ids.has(startKey) ? { start: { id: ids.get(startKey) } } : {}),
+              ...(endKey && ids.has(endKey) ? { end: { id: ids.get(endKey) } } : {}),
             })),
             steps: plan.visual.steps.map(({ elementKeys, ...step }) => ({
               ...step,
@@ -1965,12 +1955,24 @@ function App() {
           () => crypto.randomUUID(),
           FONT_FAMILY.Helvetica,
         );
+    const convertedElements = convertToExcalidrawElements(generated.elements, { regenerateIds: false });
+    const convertedById = new Map(convertedElements.map((element) => [element.id, element]));
+    const generatedSteps = generated.steps.map((step) => ({
+      ...step,
+      elementIds: [...new Set(step.elementIds.flatMap((id) => [
+        id,
+        ...(convertedById.get(id)?.boundElements ?? [])
+          .filter((bound) => bound.type === "text")
+          .map((bound) => bound.id),
+      ]))],
+    }));
     return {
       ...plan,
       ...generated,
+      steps: generatedSteps,
       sourceRevision,
       scopeElementIds,
-      elements: convertToExcalidrawElements(generated.elements, { regenerateIds: false }),
+      elements: convertedElements,
     };
   }, [selectedStoryElementIds]);
 
@@ -2157,12 +2159,8 @@ function App() {
       {!isShared && !preview && excalidrawAPI && (
         <HighlighterTool
           active={highlighterActive}
-          color={highlighterColor}
           onToggle={toggleHighlighter}
-          onColor={activateHighlighter}
-          onWidth={(width) => activateHighlighter(highlighterColor, width)}
           target={toolbarTarget}
-          width={highlighterWidth}
         />
       )}
       {!isShared && preview && renderCanvasControls()}
@@ -2211,6 +2209,7 @@ function App() {
           name="Unfold"
           theme="light"
           onChange={save}
+          onPointerDown={captureHighlighterPointerUp}
           onPointerUp={snapHighlighterToText}
           renderTopRightUI={() => renderCanvasControls(true)}
           UIOptions={{

@@ -167,8 +167,8 @@ test("accepts a safe freeform visual canvas without restricting its composition"
     visual: {
       elements: [
         { key: "title", type: "text", x: 80, y: 60, text: "系统", fontSize: 90 },
-        { key: "core", type: "diamond", x: 460, y: 300, width: 280, height: 180, backgroundColor: "#448361" },
-        { key: "link", type: "arrow", x: 600, y: 480, points: [[0, 0], [0, 200]], strokeColor: "#oops" },
+        { key: "core", type: "diamond", x: 460, y: 300, width: 280, height: 180, text: "核心", backgroundColor: "#448361" },
+        { key: "link", type: "arrow", x: 600, y: 480, startKey: "core", endKey: "title", strokeColor: "#oops" },
       ],
       steps: [{ elementKeys: ["title", "core", "missing"], title: "全景" }],
     },
@@ -176,6 +176,9 @@ test("accepts a safe freeform visual canvas without restricting its composition"
 
   assert.equal(plan.document.layout, "constellation");
   assert.equal(plan.visual.elements[0].fontSize, 64);
+  assert.equal(plan.visual.elements[1].label.text, "核心");
   assert.equal(plan.visual.elements[2].strokeColor, "#37352f");
+  assert.deepEqual(plan.visual.elements[2].points, [[0, 0], [100, 0]]);
+  assert.equal(plan.visual.elements[2].startKey, "core");
   assert.deepEqual(plan.visual.steps[0].elementKeys, ["title", "core"]);
 });

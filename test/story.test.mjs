@@ -15,6 +15,7 @@ import {
   stashStoryLinks,
   storyIconKind,
   storyLinkGeometry,
+  textHighlightColor,
   textHighlightRects,
 } from "../src/story.js";
 
@@ -195,9 +196,11 @@ test("snaps a highlighter stroke to the crossed text characters", () => {
   );
 
   assert.equal(rects.length, 1);
-  assert.deepEqual(rects[0], { x: 118, y: 52.8, width: 44, height: 16.4, angle: 0 });
+  assert.deepEqual(rects[0], { x: 118, y: 54, width: 44, height: 15.600000000000001, angle: 0 });
   assert.deepEqual(
     textHighlightRects(text, [{ x: 120, y: 100 }], 4, measureText),
     [],
   );
+  assert.equal(textHighlightColor("#37352f"), "#f7e0ca");
+  assert.equal(textHighlightColor("#448361"), "#d6e4dc");
 });

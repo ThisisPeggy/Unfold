@@ -1370,9 +1370,7 @@ body,
   content: "";
 }
 
-.highlighter-tool,
-.highlighter-color,
-.highlighter-width {
+.highlighter-tool {
   appearance: none;
   display: grid;
   width: 36px;
@@ -1399,15 +1397,11 @@ body,
   background: var(--tale-surface-hover);
 }
 
-.highlighter-tool:active,
-.highlighter-color:active,
-.highlighter-width:active {
+.highlighter-tool:active {
   transform: scale(0.96);
 }
 
-.highlighter-tool:focus-visible,
-.highlighter-color:focus-visible,
-.highlighter-width:focus-visible {
+.highlighter-tool:focus-visible {
   outline: 2px solid var(--tale-accent);
   outline-offset: 2px;
 }
@@ -1431,76 +1425,6 @@ body,
   height: 3px;
   border-radius: 2px;
   background: var(--marker-color);
-}
-
-.highlighter-colors {
-  position: absolute;
-  top: 44px;
-  left: 50%;
-  display: grid;
-  gap: 4px;
-  padding: 6px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--tale-surface);
-  box-shadow: var(--tale-shadow);
-  transform: translateX(-50%);
-  animation: palette-in 120ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.highlighter-options-row {
-  display: flex;
-  gap: 4px;
-}
-
-.highlighter-color {
-  width: 40px;
-  height: 40px;
-  border-color: transparent;
-  border-radius: 6px;
-}
-
-.highlighter-color:hover {
-  background: var(--tale-surface-hover);
-}
-
-.highlighter-color[aria-checked="true"] {
-  background: var(--tale-accent-soft);
-}
-
-.highlighter-color span {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-}
-
-.highlighter-width {
-  width: 40px;
-  height: 40px;
-  color: var(--tale-muted);
-  background: transparent;
-}
-
-.highlighter-width:hover {
-  background: var(--tale-surface-hover);
-}
-
-.highlighter-width[aria-checked="true"] {
-  color: var(--tale-accent-hover);
-  background: var(--tale-accent-soft);
-}
-
-.highlighter-width span {
-  width: 22px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-@keyframes palette-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -3px) scale(0.98);
-  }
 }
 
 .canvas-app > .excalidraw .default-sidebar-trigger {
@@ -2232,10 +2156,6 @@ body,
     animation: none !important;
   }
 
-  .highlighter-colors {
-    animation: none;
-  }
-
   .assistant-typing i {
     animation: none;
   }
@@ -2259,4 +2179,12 @@ body,
     background: #fff;
     backdrop-filter: none;
   }
+}
+.excalidraw [data-testid="font-family-bold"] svg {
+  display: none;
+}
+
+.excalidraw [data-testid="font-family-bold"]::before {
+  content: "B";
+  font: 700 17px/1 Arial, sans-serif;
 }

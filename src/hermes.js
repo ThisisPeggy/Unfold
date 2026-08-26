@@ -293,7 +293,7 @@ function buildLecturePrompt(request) {
     'Return only JSON: {"mode":"create","document":{"layout":"a short composition name","title":"...","subtitle":"...","opening":"...","sections":[{"title":"...","body":"...","narration":"..."}],"closing":{"title":"...","body":"...","narration":"..."}},"visual":{"elements":[...],"steps":[...]}}',
     "Create 3-6 sections with a clear progression. Body is concise on-canvas copy; narration is 1-3 natural spoken sentences. Avoid placeholders.",
     "You have a freeform 1200px-wide visual canvas. Available element tools are text, rectangle, ellipse, diamond, arrow, and line. Compose them freely; flow, radial, layers, timeline, comparison, matrix, journey, constellation, and annotated-diagram are examples, not a closed list.",
-    'Each visual element is {"key":"unique","type":"text|rectangle|ellipse|diamond|arrow|line","x":number,"y":number,"width":number,"height":number,"text":"text only","points":[[0,0],[dx,dy]],"strokeColor":"#hex","backgroundColor":"#hex|transparent","fontSize":number,"strokeWidth":1|2|4,"roughness":0|1|2,"fillStyle":"solid|hachure|cross-hatch","opacity":10..100}. Text needs text/x/y/fontSize; shapes need x/y/width/height; arrow and line need x/y/points. Omit irrelevant fields.',
+    'Each visual element is {"key":"unique","type":"text|rectangle|ellipse|diamond|arrow|line","x":number,"y":number,"width":number,"height":number,"text":"standalone text only","label":"text centered inside a shape","startKey":"connected node key","endKey":"connected node key","points":[[0,0],[dx,dy]],"strokeColor":"#hex","backgroundColor":"#hex|transparent","fontSize":number,"strokeWidth":1|2|4,"roughness":0|1|2,"fillStyle":"solid|hachure|cross-hatch","opacity":10..100}. Text needs text/x/y/fontSize. Shapes need x/y/width/height and should use label for their internal copy. Arrows connecting nodes should use startKey/endKey so Unfold routes them to shape edges; use manual points only for decorative lines. Omit irrelevant fields.',
     'Visual steps are {"elementKeys":["key"],"title":"...","note":"..."}. Use 8-40 elements, group every meaningful element into a step, and keep text readable and non-overlapping. Prefer a restrained palette, but any valid hex color is available when the concept benefits from it.',
     "Choose the composition from the meaning and hierarchy of the content, not from habit. When the human asks for a different design, make the spatial composition substantially different. If visual is omitted or invalid, Unfold will use its simple layout fallback.",
     `2. If they explicitly ask to create, organize, or reorder a lecture path for the current canvas, design 1-${maxSteps} steps using only supplied element IDs.`,
@@ -361,27 +361,44 @@ function normalizeVisualCanvas(visual) {
           return { ...element, text, fontSize: number(source.fontSize, 20, 12, 64) };
         }
         if (source.type === "arrow" || source.type === "line") {
+          const startKey = String(source.startKey ?? "").trim().slice(0, 40);
+          const endKey = String(source.endKey ?? "").trim().slice(0, 40);
           const points = Array.isArray(source.points)
             ? source.points.slice(0, 20).map((point) => [
                 number(point?.[0], 0, -3000, 3000),
                 number(point?.[1], 0, -3000, 3000),
               ])
             : [];
-          if (points.length < 2) return null;
-          return { ...element, points, ...(source.type === "arrow" ? { endArrowhead: "arrow" } : {}) };
+          if (points.length < 2 && !(source.type === "arrow" && startKey && endKey)) return null;
+          return {
+            ...element,
+            points: points.length >= 2 ? points : [[0, 0], [100, 0]],
+            ...(source.type === "arrow" ? { endArrowhead: "arrow", startKey, endKey } : {}),
+          };
         }
+        const label = String(source.label?.text ?? source.label ?? source.text ?? "").trim().slice(0, 300);
         return {
           ...element,
           width: number(source.width, 120, 10, 2400),
           height: number(source.height, 80, 10, 2400),
           backgroundColor: color(source.backgroundColor, "transparent"),
           fillStyle: ["solid", "hachure", "cross-hatch"].includes(source.fillStyle) ? source.fillStyle : "solid",
+          ...(label ? { label: {
+            text: label,
+            fontSize: number(source.label?.fontSize ?? source.fontSize, 20, 12, 48),
+            strokeColor: color(source.label?.strokeColor, "#37352f"),
+          } } : {}),
           ...(source.type === "rectangle" ? { roundness: { type: 3 } } : {}),
         };
       }).filter(Boolean)
     : [];
   if (elements.length < 3) return null;
   const keys = new Set(elements.map((element) => element.key));
+  elements.forEach((element) => {
+    if (element.type !== "arrow") return;
+    if (!keys.has(element.startKey)) delete element.startKey;
+    if (!keys.has(element.endKey)) delete element.endKey;
+  });
   const steps = Array.isArray(visual?.steps)
     ? visual.steps.slice(0, 20).map((step) => {
         const elementKeys = Array.isArray(step?.elementKeys)

@@ -24,7 +24,7 @@ Use white paper and Notion-like near-black ink; new authored marks default to th
 
 # Typography
 
-Use Google Fonts Inter and Noto Sans SC for controls, with system fallbacks. Keep Excalidraw's hand-drawn fonts for authored content and interface labels compact and calm.
+Use Google Fonts Inter and Noto Sans SC for controls, with system fallbacks. The second authored-text control toggles Noto Sans CJK SC Bold, with full Chinese coverage, and returns to regular sans when pressed again; keep the remaining Excalidraw hand-drawn and code fonts available and interface labels compact and calm.
 
 # Layout
 
@@ -40,7 +40,7 @@ Controls use 6px corners. Keep the control group itself visually transparent so 
 
 # Components
 
-The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Its main menu is branded as Unfold（迹·叙）and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Unfold story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker uses Excalidraw free draw with three widths, 30% opacity, and no roughness, so users can drag a natural translucent stroke over any phrase. Hermes composes freely from safe canvas primitives; named layouts are inspiration and fallback, not templates it must follow. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
+The editor owns drawing tools, menus, zoom, export, and the selected-element link input. Ordinary shape tools are one-shot by default so a newly drawn element remains ready for immediate styling; tool lock is an explicit session-only choice for batch drawing and is not restored with a scene. The highlighter remains continuous while its dedicated mode is active. The main menu is branded as Unfold（迹·叙）and excludes upstream social and documentation links. The product shell owns save status, publishing, preview mode, a compact link-settings popover, and a marker inside the main toolbar. Native links are converted into Unfold story links after entry; clicking their icon opens a nearby popover with familiar social icons and live left/right placement. The marker automatically sizes its soft borderless highlight from the crossed text: colored text produces a same-hue pastel, while neutral text uses pale amber; empty strokes leave no canvas marks. Hermes composes freely from safe canvas primitives; named layouts are inspiration and fallback, not templates it must follow. Published scenes remove all application chrome and add accessible animated link overlays: a small icon and a hand-drawn underline on hover or keyboard focus.
 
 # Do's and Don'ts
 

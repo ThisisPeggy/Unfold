@@ -3,6 +3,7 @@ import path from "node:path";
 
 const root = path.resolve("node_modules/@excalidraw/excalidraw/dist");
 const files = [
+  path.join(root, "dev/index.js"),
   path.join(root, "dev/chunk-4FTI6OG3.js"),
   ...fs.readdirSync(path.join(root, "prod"))
     .filter((name) => name.endsWith(".js"))
@@ -34,6 +35,62 @@ const patches = [
     'n("Virgil",...yc),n(Mn,...b1)',
     'n("Virgil",...yc),n("小赖字体",...b1),n("霞鹜文楷 GB",{uri:"/fonts/LXGWWenKaiGBLite-Regular.ttf",descriptors:{}}),n(Mn,...b1)',
   ],
+  [
+    'value: FONT_FAMILY.Nunito,\n    icon: FontFamilyNormalIcon,\n    text: t("labels.normal"),\n    testId: "font-family-normal"',
+    'value: FONT_FAMILY.Nunito,\n    icon: FontFamilyNormalIcon,\n    text: "粗体",\n    testId: "font-family-bold"',
+  ],
+  [
+    'value:Kr.Nunito,icon:Xl,text:g("labels.normal"),testId:"font-family-normal"',
+    'value:Kr.Nunito,icon:Xl,text:"粗体",testId:"font-family-bold"',
+  ],
+  [
+    'init("Nunito", ...NunitoFontFaces);',
+    'init("Nunito", { uri: "/fonts/NotoSansCJKsc-Bold.otf", descriptors: {} });',
+  ],
+  [
+    'n("Nunito",...xc)',
+    'n("Nunito",{uri:"/fonts/NotoSansCJKsc-Bold.otf",descriptors:{}})',
+  ],
+  [
+    'children: /* @__PURE__ */ jsx("path", { d: "M5.833 16.667v-10a3.333 3.333 0 0 1 3.334-3.334h1.666a3.333 3.333 0 0 1 3.334 3.334v10M5.833 10.833h8.334" })',
+    'children: /* @__PURE__ */ jsx("path", { d: "M5 2h6a5 5 0 0 1 3.7 8.4A5 5 0 0 1 11 19H5V2Zm3 3v4h3a2 2 0 0 0 0-4H8Zm0 7v4h3a2 2 0 0 0 0-4H8Z", fill: "currentColor", stroke: "none" })',
+  ],
+  [
+    'children:f("path",{d:"M5.833 16.667v-10a3.333 3.333 0 0 1 3.334-3.334h1.666a3.333 3.333 0 0 1 3.334 3.334v10M5.833 10.833h8.334"})',
+    'children:f("path",{d:"M5 2h6a5 5 0 0 1 3.7 8.4A5 5 0 0 1 11 19H5V2Zm3 3v4h3a2 2 0 0 0 0-4H8Zm0 7v4h3a2 2 0 0 0 0-4H8Z",fill:"currentColor",stroke:"none"})',
+  ],
+  [
+    "return `format('${parts.pop()}')`;",
+    "const extension = parts.pop();\n      return `format('${extension === \"otf\" ? \"opentype\" : extension}')`;",
+  ],
+  [
+    'try{let n=new URL(t).pathname.split(".");return n.length===1?"":`format(\'${n.pop()}\')`}catch',
+    'try{let n=new URL(t).pathname.split(".");if(n.length===1)return"";let r=n.pop();return`format(\'${r==="otf"?"opentype":r}\')`}catch',
+  ],
+  [
+    'uri: "/fonts/NotoSansCJKsc-Bold.otf"',
+    'uri: globalThis.location.origin + "/fonts/NotoSansCJKsc-Bold.otf"',
+  ],
+  [
+    'uri:"/fonts/NotoSansCJKsc-Bold.otf"',
+    'uri:globalThis.location.origin+"/fonts/NotoSansCJKsc-Bold.otf"',
+  ],
+  [
+    'uri: "/fonts/LXGWWenKaiGBLite-Regular.ttf"',
+    'uri: globalThis.location.origin + "/fonts/LXGWWenKaiGBLite-Regular.ttf"',
+  ],
+  [
+    'uri:"/fonts/LXGWWenKaiGBLite-Regular.ttf"',
+    'uri:globalThis.location.origin+"/fonts/LXGWWenKaiGBLite-Regular.ttf"',
+  ],
+  [
+    'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value);\n        }\n      },\n      [onSelect]\n    );',
+    'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value === FONT_FAMILY.Nunito && selectedFontFamily === value ? FONT_FAMILY.Helvetica : value);\n        }\n      },\n      [onSelect, selectedFontFamily]\n    );',
+  ],
+  [
+    'let l=R2(()=>Uy,[]),s=P2(c=>{c&&r(c)},[r]);',
+    'let l=R2(()=>Uy,[]),s=P2(c=>{c&&r(c===Kr.Nunito&&o===c?Kr.Helvetica:c)},[r,o]);',
+  ],
 ];
 
 let applied = 0;
@@ -51,13 +108,37 @@ for (const file of files) {
 }
 
 // ponytail: pinned bundle patch; delete when Excalidraw exposes custom font registration.
-const verified = files.filter((file) => {
+const customFontsVerified = files.filter((file) => {
   const source = fs.readFileSync(file, "utf8");
   return source.includes('"小赖字体"') &&
     source.includes('"霞鹜文楷 GB"') &&
     source.includes("/fonts/LXGWWenKaiGBLite-Regular.ttf");
 }).length;
 
-if ((applied !== 6 && applied !== 0) || verified !== 2) {
-  throw new Error(`Excalidraw font patch was only partially applied (${applied}/6)`);
+const boldFontVerified = files.filter((file) =>
+  fs.readFileSync(file, "utf8").includes('/fonts/NotoSansCJKsc-Bold.otf'),
+).length;
+const boldLabelVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes('testId: "font-family-bold"') || source.includes('testId:"font-family-bold"');
+}).length;
+const boldIconVerified = files.filter((file) =>
+  fs.readFileSync(file, "utf8").includes("M5 2h6a5 5 0 0 1 3.7 8.4"),
+).length;
+const opentypeFormatVerified = files.filter((file) =>
+  fs.readFileSync(file, "utf8").includes('"opentype"'),
+).length;
+const localFontOriginVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes('location.origin + "/fonts/NotoSansCJKsc-Bold.otf"') ||
+    source.includes('location.origin+"/fonts/NotoSansCJKsc-Bold.otf"');
+}).length;
+const boldToggleVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes("selectedFontFamily === value ? FONT_FAMILY.Helvetica") ||
+    source.includes("o===c?Kr.Helvetica");
+}).length;
+
+if (![0, 2, 20].includes(applied) || customFontsVerified !== 2 || boldFontVerified !== 2 || boldLabelVerified !== 2 || boldIconVerified !== 2 || opentypeFormatVerified !== 2 || localFontOriginVerified !== 2 || boldToggleVerified !== 2) {
+  throw new Error(`Excalidraw font patch was only partially applied (${applied}/20)`);
 }

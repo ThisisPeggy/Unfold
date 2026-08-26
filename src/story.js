@@ -504,7 +504,7 @@ export function textHighlightRects(element, path, brushWidth, measureText) {
     : localPath.slice(1).map((point, index) => [localPath[index], point]);
   const fontSize = element.fontSize ?? 20;
   const lineHeight = fontSize * (element.lineHeight ?? 1.25);
-  const highlightHeight = fontSize * 0.82;
+  const highlightHeight = fontSize * 0.78;
   const radius = Math.max(1, brushWidth / 2);
   const rects = [];
 
@@ -542,7 +542,7 @@ export function textHighlightRects(element, path, brushWidth, measureText) {
       while (end < selected.length && (selected[end] || !line[end].trim())) end += 1;
       while (end > start && !line[end - 1].trim()) end -= 1;
       const localX = lineX + widths[start] - 2;
-      const localY = lineIndex * lineHeight + fontSize * 0.14;
+      const localY = lineIndex * lineHeight + fontSize * 0.2;
       const width = widths[end] - widths[start] + 4;
       const localCenter = { x: localX + width / 2, y: localY + highlightHeight / 2 };
       const dx = localCenter.x + element.x - center.x;
@@ -563,4 +563,17 @@ export function textHighlightRects(element, path, brushWidth, measureText) {
   });
 
   return rects;
+}
+
+export function textHighlightColor(strokeColor) {
+  const match = /^#([0-9a-f]{6})$/i.exec(strokeColor ?? "");
+  const channels = match
+    ? match[1].match(/../g).map((value) => Number.parseInt(value, 16))
+    : [55, 53, 47];
+  const base = Math.max(...channels) - Math.min(...channels) < 24
+    ? [217, 115, 13]
+    : channels;
+  return `#${base.map((value) =>
+    Math.round(value * 0.22 + 255 * 0.78).toString(16).padStart(2, "0")
+  ).join("")}`;
 }
