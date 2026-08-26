@@ -28,6 +28,7 @@ import {
   STORY_ICON_KINDS,
   createGeneratedLecture,
   editorLinkSignature,
+  getStoryIconImage,
   getStoryIconKind,
   getStoryHref,
   getStorySteps,
@@ -38,6 +39,7 @@ import {
   stashStoryLinks,
   storyIconKind,
   storyLinkGeometry,
+  textHighlightRects,
 } from "./story.js";
 
 const STORAGE_KEY = "story-canvas.scene.v1";
@@ -350,6 +352,63 @@ function LinkDoodle({ kind, x, y, size }) {
   return <svg {...common}>{paths[kind] ?? paths.link}</svg>;
 }
 
+function StoryLinkIcon({ element, x, y, size }) {
+  const image = getStoryIconImage(element);
+  if (!image) return <LinkDoodle kind={getStoryIconKind(element)} x={x} y={y} size={size} />;
+  const clipId = `story-link-image-${element.id}`;
+  const radius = size * 0.2;
+  return (
+    <g className="story-link-icon">
+      <defs><clipPath id={clipId}><rect x={x} y={y} width={size} height={size} rx={radius} /></clipPath></defs>
+      <image
+        className="story-link-custom-image"
+        href={image}
+        x={x}
+        y={y}
+        width={size}
+        height={size}
+        preserveAspectRatio="xMidYMid slice"
+        clipPath={`url(#${clipId})`}
+      />
+    </g>
+  );
+}
+
+function makeStoryIconImage(file) {
+  if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return Promise.reject(new Error("请选择 PNG、JPEG 或 WebP 图片。"));
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return Promise.reject(new Error("图片不能超过 5 MB。"));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("无法读取这张图片。"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("无法打开这张图片。"));
+      image.onload = () => {
+        const size = 128;
+        const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
+        const width = image.naturalWidth * scale;
+        const height = image.naturalHeight * scale;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("当前浏览器无法处理这张图片。"));
+          return;
+        }
+        context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+        resolve(canvas.toDataURL("image/webp", 0.86));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSteps, storyPath }) {
   const zoom = appState?.zoom?.value ?? 1;
   const transform = `translate(${appState?.offsetLeft ?? 0} ${appState?.offsetTop ?? 0}) scale(${zoom}) translate(${appState?.scrollX ?? 0} ${appState?.scrollY ?? 0})`;
@@ -372,8 +431,8 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSte
                 style={{ color: element.strokeColor }}
                 transform={`rotate(${(element.angle * 180) / Math.PI} ${centerX} ${centerY})`}
               >
-                <LinkDoodle
-                  kind={getStoryIconKind(element)}
+                <StoryLinkIcon
+                  element={element}
                   x={iconX}
                   y={iconY}
                   size={size}
@@ -1007,11 +1066,13 @@ function StoryPathEditor({
 
 function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, onRemove }) {
   const [url, setUrl] = useState(getStoryHref(element) ?? "");
-  const [icon, setIcon] = useState(getStoryIconKind(element));
+  const [customIcon, setCustomIcon] = useState(getStoryIconImage(element));
+  const [icon, setIcon] = useState(customIcon ? "custom" : getStoryIconKind(element));
   const [side, setSide] = useState(
     element.customData?.storyIconSide === "right" ? "right" : "left",
   );
   const [invalid, setInvalid] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const popoverRef = useRef(null);
   const inputRef = useRef(null);
   const zoom = appState?.zoom?.value ?? 1;
@@ -1054,7 +1115,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
       setInvalid(true);
       return;
     }
-    onSave({ href, icon, side });
+    onSave({ href, icon, side, customIcon });
   };
 
   return (
@@ -1105,7 +1166,9 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
                 aria-label={STORY_ICON_LABELS[value]}
                 onChange={() => {
                   setIcon(value);
-                  onPreview({ icon: value, side });
+                  setCustomIcon("");
+                  setUploadError("");
+                  onPreview({ icon: value, side, customIcon: "" });
                 }}
               />
               <span>
@@ -1115,7 +1178,37 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
               </span>
             </label>
           ))}
+          <label className="custom-icon-option" data-selected={icon === "custom"}>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              aria-label="上传自定义链接图标"
+              aria-describedby={uploadError ? "link-icon-error" : undefined}
+              aria-invalid={Boolean(uploadError)}
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                try {
+                  const image = await makeStoryIconImage(file);
+                  setCustomIcon(image);
+                  setIcon("custom");
+                  setUploadError("");
+                  onPreview({ icon: "custom", side, customIcon: image });
+                } catch (error) {
+                  setUploadError(error.message);
+                }
+              }}
+            />
+            <span>
+              {customIcon
+                ? <img src={customIcon} alt="" />
+                : <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v11m-4-7 4-4 4 4M5 14v5h14v-5" /></svg>}
+              <b>{customIcon ? "更换图片" : "上传图片"}</b>
+            </span>
+          </label>
         </div>
+        {uploadError && <p id="link-icon-error" className="field-error" role="alert">{uploadError}</p>}
       </fieldset>
 
       <fieldset className="link-options">
@@ -1130,7 +1223,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
                 checked={side === value}
                 onChange={() => {
                   setSide(value);
-                  onPreview({ icon, side: value });
+                  onPreview({ icon, side: value, customIcon });
                 }}
               />
               <span>{label}</span>
@@ -1175,8 +1268,8 @@ function StoryLink({ active = false, element }) {
         height={element.height + size * 0.5}
         rx={size * 0.18}
       />
-      <LinkDoodle
-        kind={getStoryIconKind(element)}
+      <StoryLinkIcon
+        element={element}
         x={iconX}
         y={iconY}
         size={size}
@@ -1459,6 +1552,88 @@ function App() {
     }
   }, [activateHighlighter, excalidrawAPI, highlighterActive, highlighterColor]);
 
+  const snapHighlighterToText = useCallback((activeTool, pointerDownState) => {
+    if (!highlighterActive || activeTool.type !== "freedraw") return;
+    requestAnimationFrame(() => {
+      const elements = excalidrawAPI?.getSceneElements() ?? [];
+      const strokes = elements.filter((element) =>
+        element.type === "freedraw" &&
+        !element.isDeleted &&
+        !pointerDownState.originalElements.has(element.id),
+      );
+      const texts = elements.filter((element) => element.type === "text" && !element.isDeleted);
+      if (!strokes.length || !texts.length) return;
+
+      const context = document.createElement("canvas").getContext("2d");
+      if (!context) return;
+      const highlightsByText = new Map();
+      const replacedStrokeIds = new Set();
+
+      for (const stroke of strokes) {
+        const path = stroke.points.map(([x, y]) => ({ x: stroke.x + x, y: stroke.y + y }));
+        for (const text of texts) {
+          const fontFamily = Object.entries(FONT_FAMILY).find(([, value]) => value === text.fontFamily)?.[0]
+            ?? "Helvetica";
+          context.font = `${text.fontSize ?? 20}px "${fontFamily}"`;
+          const rects = textHighlightRects(
+            text,
+            path,
+            stroke.strokeWidth,
+            (value) => context.measureText(value).width,
+          );
+          if (!rects.length) continue;
+          replacedStrokeIds.add(stroke.id);
+          const existing = highlightsByText.get(text.id) ?? [];
+          existing.push(...rects.map((rect) => ({ ...rect, color: stroke.strokeColor })));
+          highlightsByText.set(text.id, existing);
+        }
+      }
+      if (!replacedStrokeIds.size) return;
+
+      const updatedTexts = new Map();
+      const highlights = new Map();
+      for (const text of texts) {
+        const rects = highlightsByText.get(text.id);
+        if (!rects) continue;
+        const groupId = text.customData?.textHighlightGroup ?? crypto.randomUUID();
+        const groupIds = text.groupIds?.includes(groupId)
+          ? text.groupIds
+          : [groupId, ...(text.groupIds ?? [])];
+        updatedTexts.set(text.id, newElementWith(text, {
+          groupIds,
+          customData: { ...text.customData, textHighlightGroup: groupId },
+        }));
+        highlights.set(text.id, convertToExcalidrawElements(
+          rects.map((rect) => ({
+            id: crypto.randomUUID(),
+            type: "rectangle",
+            ...rect,
+            strokeColor: rect.color,
+            backgroundColor: rect.color,
+            fillStyle: "solid",
+            strokeWidth: 1,
+            roughness: 0,
+            opacity: 30,
+            groupIds,
+            customData: { textHighlightFor: text.id },
+          })),
+          { regenerateIds: false },
+        ));
+      }
+
+      const nextElements = [];
+      for (const element of elements) {
+        if (highlights.has(element.id)) nextElements.push(...highlights.get(element.id));
+        if (replacedStrokeIds.has(element.id)) {
+          nextElements.push(newElementWith(element, { isDeleted: true }));
+        } else {
+          nextElements.push(updatedTexts.get(element.id) ?? element);
+        }
+      }
+      excalidrawAPI.updateScene({ elements: nextElements });
+    });
+  }, [excalidrawAPI, highlighterActive]);
+
   useEffect(
     () => () => {
       window.clearTimeout(saveTimer.current);
@@ -1579,15 +1754,19 @@ function App() {
     publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
   }, [publishState]);
 
-  const previewLinkAppearance = useCallback(({ icon, side }) => {
+  const previewLinkAppearance = useCallback(({ icon, side, customIcon }) => {
     if (!linkEditorId) return;
-    const nextElements = latestScene.current.elements.map((element) =>
-      element.id === linkEditorId
-        ? newElementWith(element, {
-            customData: { ...element.customData, storyIcon: icon, storyIconSide: side },
-          })
-        : element,
-    );
+    const nextElements = latestScene.current.elements.map((element) => {
+      if (element.id !== linkEditorId) return element;
+      const customData = {
+        ...element.customData,
+        storyIcon: icon === "custom" ? "link" : icon,
+        storyIconSide: side,
+      };
+      if (customIcon) customData.storyIconImage = customIcon;
+      else delete customData.storyIconImage;
+      return newElementWith(element, { customData });
+    });
     const appState = excalidrawAPI?.getAppState() ?? editorView.appState;
     latestScene.current = { ...latestScene.current, elements: nextElements };
     editorViewSignature.current = editorLinkSignature(nextElements, appState);
@@ -1602,12 +1781,15 @@ function App() {
       const customData = { ...element.customData };
       if (settings) {
         customData.storyLink = settings.href;
-        customData.storyIcon = settings.icon;
+        customData.storyIcon = settings.icon === "custom" ? "link" : settings.icon;
         customData.storyIconSide = settings.side;
+        if (settings.customIcon) customData.storyIconImage = settings.customIcon;
+        else delete customData.storyIconImage;
       } else {
         delete customData.storyLink;
         delete customData.storyIcon;
         delete customData.storyIconSide;
+        delete customData.storyIconImage;
       }
       return newElementWith(element, { link: null, customData });
     });
@@ -1961,6 +2143,7 @@ function App() {
           name="Unfold"
           theme="light"
           onChange={save}
+          onPointerUp={snapHighlighterToText}
           renderTopRightUI={() => renderCanvasControls(true)}
           UIOptions={{
             canvasActions: {

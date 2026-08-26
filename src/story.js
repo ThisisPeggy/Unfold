@@ -249,6 +249,13 @@ export function makeStoryPath(elements, storyPath) {
   });
 }
 
+export function getStoryIconImage(element) {
+  const image = String(element?.customData?.storyIconImage ?? "");
+  return image.length <= 200_000 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(image)
+    ? image
+    : "";
+}
+
 export function mergeHermesStoryPath(
   elements,
   storyPath,
@@ -349,4 +356,97 @@ export function storyLinkGeometry(element) {
     iconY: element.y + (element.height - size) / 2,
     underlineY: element.y + element.height + size * 0.16,
   };
+}
+
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const ratio = lengthSquared
+    ? Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+    : 0;
+  return Math.hypot(point.x - start.x - dx * ratio, point.y - start.y - dy * ratio);
+}
+
+export function textHighlightRects(element, path, brushWidth, measureText) {
+  if (element?.type !== "text" || !path?.length || !element.text || typeof measureText !== "function") {
+    return [];
+  }
+
+  const angle = element.angle ?? 0;
+  const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
+  const cos = Math.cos(-angle);
+  const sin = Math.sin(-angle);
+  const localPath = path.map((point) => {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    return {
+      x: center.x + dx * cos - dy * sin - element.x,
+      y: center.y + dx * sin + dy * cos - element.y,
+    };
+  });
+  const segments = localPath.length === 1
+    ? [[localPath[0], localPath[0]]]
+    : localPath.slice(1).map((point, index) => [localPath[index], point]);
+  const fontSize = element.fontSize ?? 20;
+  const lineHeight = fontSize * (element.lineHeight ?? 1.25);
+  const highlightHeight = fontSize * 0.82;
+  const radius = Math.max(1, brushWidth / 2);
+  const rects = [];
+
+  element.text.split("\n").forEach((line, lineIndex) => {
+    if (!line) return;
+    const lineWidth = measureText(line);
+    const lineX = element.textAlign === "center"
+      ? (element.width - lineWidth) / 2
+      : element.textAlign === "right"
+        ? element.width - lineWidth
+        : 0;
+    const widths = [0];
+    for (let index = 1; index <= line.length; index += 1) {
+      widths.push(measureText(line.slice(0, index)));
+    }
+    const selected = line.split("").map((character, index) => {
+      if (!character.trim()) return false;
+      const left = lineX + widths[index];
+      const width = widths[index + 1] - widths[index];
+      const point = {
+        x: left + width / 2,
+        y: lineIndex * lineHeight + fontSize / 2,
+      };
+      return segments.some(([start, end]) =>
+        distanceToSegment(point, start, end) <= radius + Math.max(width / 2, fontSize * 0.18),
+      );
+    });
+
+    for (let start = 0; start < selected.length;) {
+      if (!selected[start]) {
+        start += 1;
+        continue;
+      }
+      let end = start + 1;
+      while (end < selected.length && (selected[end] || !line[end].trim())) end += 1;
+      while (end > start && !line[end - 1].trim()) end -= 1;
+      const localX = lineX + widths[start] - 2;
+      const localY = lineIndex * lineHeight + fontSize * 0.14;
+      const width = widths[end] - widths[start] + 4;
+      const localCenter = { x: localX + width / 2, y: localY + highlightHeight / 2 };
+      const dx = localCenter.x + element.x - center.x;
+      const dy = localCenter.y + element.y - center.y;
+      const worldCenter = {
+        x: center.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+        y: center.y + dx * Math.sin(angle) + dy * Math.cos(angle),
+      };
+      rects.push({
+        x: worldCenter.x - width / 2,
+        y: worldCenter.y - highlightHeight / 2,
+        width,
+        height: highlightHeight,
+        angle,
+      });
+      start = Math.max(end, start + 1);
+    }
+  });
+
+  return rects;
 }

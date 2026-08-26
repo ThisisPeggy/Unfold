@@ -1857,6 +1857,47 @@ body,
   background: var(--tale-accent-soft);
 }
 
+.custom-icon-option {
+  grid-column: 1 / -1;
+}
+
+.icon-options .custom-icon-option span {
+  grid-template-columns: 24px auto;
+  justify-content: center;
+  gap: 8px;
+}
+
+.custom-icon-option[data-selected="true"] span {
+  border-color: rgb(35 131 226 / 28%);
+  color: var(--tale-accent-hover);
+  background: var(--tale-accent-soft);
+}
+
+.custom-icon-option img {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+  outline: 1px solid oklch(0 0 0 / 10%);
+}
+
+.custom-icon-option b {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.custom-icon-option svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.story-link-custom-image {
+  pointer-events: none;
+}
+
 .segmented-options label {
   position: relative;
   cursor: pointer;

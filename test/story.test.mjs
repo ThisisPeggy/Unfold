@@ -4,6 +4,7 @@ import {
   STORY_ICON_KINDS,
   createGeneratedLecture,
   editorLinkSignature,
+  getStoryIconImage,
   getStoryIconKind,
   getStoryHref,
   getStorySteps,
@@ -14,6 +15,7 @@ import {
   stashStoryLinks,
   storyIconKind,
   storyLinkGeometry,
+  textHighlightRects,
 } from "../src/story.js";
 
 test("chooses a doodle and places it beside linked elements", () => {
@@ -35,6 +37,10 @@ test("chooses a doodle and places it beside linked elements", () => {
   linked.customData.storyIcon = "camera";
   linked.customData.storyIconSide = "right";
   assert.equal(getStoryIconKind(linked), "camera");
+  linked.customData.storyIconImage = "data:image/webp;base64,AAAA";
+  assert.equal(getStoryIconImage(linked), "data:image/webp;base64,AAAA");
+  linked.customData.storyIconImage = "data:image/svg+xml,<svg onload=alert(1)>";
+  assert.equal(getStoryIconImage(linked), "");
   assert.equal(storyLinkGeometry({ ...linked, x: 100, width: 80, height: 24, fontSize: 20 }).iconX, 185);
   assert.notEqual(
     editorLinkSignature([linked], { zoom: { value: 1 } }),
@@ -144,4 +150,33 @@ test("grows generated cards for long canvas copy", () => {
     element.type === "rectangle" && element.width === 480,
   );
   assert.ok(sectionCard.height > 220);
+});
+
+test("snaps a highlighter stroke to the crossed text characters", () => {
+  const text = {
+    type: "text",
+    x: 100,
+    y: 50,
+    width: 80,
+    height: 20,
+    angle: 0,
+    fontSize: 20,
+    lineHeight: 1,
+    textAlign: "left",
+    text: "ABCD",
+  };
+  const measureText = (value) => value.length * 20;
+  const rects = textHighlightRects(
+    text,
+    [{ x: 123, y: 60 }, { x: 157, y: 60 }],
+    4,
+    measureText,
+  );
+
+  assert.equal(rects.length, 1);
+  assert.deepEqual(rects[0], { x: 118, y: 52.8, width: 44, height: 16.4, angle: 0 });
+  assert.deepEqual(
+    textHighlightRects(text, [{ x: 120, y: 100 }], 4, measureText),
+    [],
+  );
 });
