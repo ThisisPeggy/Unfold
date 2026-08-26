@@ -111,6 +111,8 @@ test("connects directly to the local Hermes Connector and validates the plan", a
       }
       if (frame.method === "prompt.submit") {
         assert.match(frame.params.text, /Human goal: "介绍流程"/);
+        assert.match(frame.params.text, /describe only these Unfold capabilities/);
+        assert.match(frame.params.text, /read-only web_search and web_extract/);
         this.emit("message", { data: JSON.stringify({ id: frame.id, result: { status: "streaming" } }) });
         this.emit("message", { data: JSON.stringify({
           method: "event",

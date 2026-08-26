@@ -670,7 +670,7 @@ function HermesAssistantPanel({
               <div className="assistant-empty-state">
                 <AssistantMascot working={busy} />
                 <h3><span>问问题，也可以整理画布。</span><span>今天想做什么？</span></h3>
-                <p>Hermes 可以聊天、写作和设计讲解路径，但不会联网查询实时信息。</p>
+                <p>Hermes 可以聊天、写作、联网查找信息和设计讲解路径。</p>
               </div>
             ) : messages.map((message) => (
               <div

@@ -610,8 +610,8 @@ body,
   padding: 9px 11px;
   border-radius: 8px;
   background: var(--tale-surface-hover);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
