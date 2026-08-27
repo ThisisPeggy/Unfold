@@ -41,6 +41,7 @@ import {
   getStoryIconKind,
   getStoryHref,
   getStorySteps,
+  getStoryViewBox,
   makeStoryPath,
   mergeHermesStoryPath,
   polishStarterElement,
@@ -1288,8 +1289,10 @@ function StoryLink({ active = false, element }) {
 }
 
 function StoryView({ scene, onExit }) {
-  const [svgUrl, setSvgUrl] = useState("");
+  const [svgMarkup, setSvgMarkup] = useState("");
   const [stepIndex, setStepIndex] = useState(0);
+  const storySvgRef = useRef(null);
+  const viewBoxRef = useRef(null);
   const visibleElements = useMemo(
     () => scene?.elements?.filter((element) => !element.isDeleted) ?? [],
     [scene],
@@ -1311,35 +1314,29 @@ function StoryView({ scene, onExit }) {
     () => (visibleElements.length ? getCommonBounds(visibleElements) : [0, 0, 1, 1]),
     [visibleElements],
   );
-  const frame = {
+  const frame = useMemo(() => ({
     x: bounds[0] - storyPadding,
     y: bounds[1] - storyPadding,
     width: Math.max(1, bounds[2] - bounds[0] + storyPadding * 2),
     height: Math.max(1, bounds[3] - bounds[1] + storyPadding * 2),
-  };
+  }), [bounds, storyPadding]);
   const steps = useMemo(
     () => getStorySteps(visibleElements, scene?.storyPath),
     [scene?.storyPath, visibleElements],
   );
-  const currentStep = Math.min(stepIndex, steps.length);
-  const activeStep = steps[currentStep - 1] ?? null;
+  const lastStepIndex = steps.length ? steps.length + 1 : 0;
+  const finished = stepIndex > steps.length;
+  const activeStep = steps[stepIndex - 1] ?? null;
   const focusBounds = activeStep?.storyCamera ?? activeStep;
-  const focusScale = activeStep
-    ? Math.max(
-        1,
-        Math.min(
-          activeStep.storyCamera ? 4 : 2.2,
-          frame.width / Math.max(1, focusBounds.width + (activeStep.storyCamera ? 0 : 96)),
-          frame.height / Math.max(1, focusBounds.height + (activeStep.storyCamera ? 0 : 96)),
-        ),
-      )
-    : 1;
-  const focusX = activeStep
-    ? (focusBounds.x + focusBounds.width / 2 - frame.x) / frame.width
-    : 0.5;
-  const focusY = activeStep
-    ? (focusBounds.y + focusBounds.height / 2 - frame.y) / frame.height
-    : 0.5;
+  const targetViewBox = useMemo(
+    () => getStoryViewBox(
+      frame,
+      focusBounds,
+      activeStep?.storyCamera ? 4 : 2.2,
+      activeStep?.storyCamera ? 0 : 96,
+    ),
+    [activeStep?.storyCamera, focusBounds, frame],
+  );
 
   useEffect(() => setStepIndex(0), [scene]);
 
@@ -1359,16 +1356,17 @@ function StoryView({ scene, onExit }) {
           : 0;
       if (!direction) return;
       event.preventDefault();
-      setStepIndex((value) => Math.max(0, Math.min(steps.length, value + direction)));
+      setStepIndex((value) => Math.max(0, Math.min(lastStepIndex, value + direction)));
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onExit, steps.length]);
+  }, [lastStepIndex, onExit]);
 
   useEffect(() => {
     if (!scene || !visibleElements.length) return undefined;
     let disposed = false;
-    let objectUrl = "";
+    setSvgMarkup("");
+    viewBoxRef.current = null;
     exportToSvg({
       elements: visibleElements,
       appState: { ...scene.appState, exportBackground: false },
@@ -1376,21 +1374,47 @@ function StoryView({ scene, onExit }) {
       exportPadding: storyPadding,
     })
       .then((svg) => {
-        objectUrl = URL.createObjectURL(
-          new Blob([svg.outerHTML], { type: "image/svg+xml" }),
-        );
-        if (!disposed) setSvgUrl(objectUrl);
+        if (!disposed) setSvgMarkup(svg.innerHTML);
       })
       .catch(() => {
-        if (!disposed) setSvgUrl("");
+        if (!disposed) setSvgMarkup("");
       });
     return () => {
       disposed = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [scene, storyPadding, visibleElements]);
 
-  if (!scene || !visibleElements.length || !svgUrl) {
+  useEffect(() => {
+    const svg = storySvgRef.current;
+    if (!svg || !svgMarkup) return undefined;
+    const setViewBox = (value) => {
+      svg.setAttribute("viewBox", `${value.x} ${value.y} ${value.width} ${value.height}`);
+      viewBoxRef.current = value;
+    };
+    const from = viewBoxRef.current;
+    if (!from || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setViewBox(targetViewBox);
+      return undefined;
+    }
+    let animationFrame;
+    let startedAt;
+    const animate = (time) => {
+      startedAt ??= time;
+      const progress = Math.min(1, (time - startedAt) / 360);
+      const eased = 1 - (1 - progress) ** 4;
+      setViewBox({
+        x: from.x + (targetViewBox.x - from.x) * eased,
+        y: from.y + (targetViewBox.y - from.y) * eased,
+        width: from.width + (targetViewBox.width - from.width) * eased,
+        height: from.height + (targetViewBox.height - from.height) * eased,
+      });
+      if (progress < 1) animationFrame = requestAnimationFrame(animate);
+    };
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [svgMarkup, targetViewBox]);
+
+  if (!scene || !visibleElements.length || !svgMarkup) {
     return <p className="story-loading" role="status">正在整理画面…</p>;
   }
 
@@ -1401,45 +1425,37 @@ function StoryView({ scene, onExit }) {
 
   return (
     <section className="story-view" aria-label="作品讲解">
-      <div
+      {storyText && <p className="story-transcript">{storyText}</p>}
+      <svg
+        ref={storySvgRef}
         className="story-scene"
-        style={{
-          "--story-ratio": frame.width / frame.height,
-          transform: activeStep
-            ? `translate(${(0.5 - focusX * focusScale) * 100}%, ${(0.5 - focusY * focusScale) * 100}%) scale(${focusScale})`
-            : "translate(0, 0) scale(1)",
-        }}
+        style={{ "--story-ratio": frame.width / frame.height }}
+        viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
+        aria-label="讲解画面"
       >
-        {storyText && <p className="story-transcript">{storyText}</p>}
-        <img src={svgUrl} alt="" />
-        <svg
-          className="story-links"
-          viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
-          aria-label="画面中的链接"
-        >
-          {linkedElements.map((element) => (
-            <StoryLink
-              key={element.id}
-              active={activeStep?.storyElementIds?.includes(element.id) ?? element.id === activeStep?.id}
-              element={element}
-            />
-          ))}
-        </svg>
-      </div>
+        <g className="story-art" dangerouslySetInnerHTML={{ __html: svgMarkup }} />
+        {linkedElements.map((element) => (
+          <StoryLink
+            key={element.id}
+            active={activeStep?.storyElementIds?.includes(element.id) ?? element.id === activeStep?.id}
+            element={element}
+          />
+        ))}
+      </svg>
       <nav className="story-steps" aria-label="讲解步骤">
         <button
           type="button"
           aria-label="上一步"
-          disabled={currentStep === 0}
-          onClick={() => setStepIndex(currentStep - 1)}
+          disabled={stepIndex === 0}
+          onClick={() => setStepIndex(stepIndex - 1)}
         >
           <ChevronIcon direction="left" />
         </button>
         <div className="story-step-status" aria-live="polite">
           <span className="story-step-meta">
-            {activeStep ? `步骤 ${currentStep} / ${steps.length}` : `${steps.length} 个步骤`}
+            {activeStep ? `步骤 ${stepIndex} / ${steps.length}` : finished ? "讲解结束" : `${steps.length} 个步骤`}
           </span>
-          <strong>{activeStep ? storyStepLabel(activeStep) : "全景"}</strong>
+          <strong>{activeStep ? storyStepLabel(activeStep) : finished ? "全部内容" : "全景"}</strong>
           {activeStep?.storyNote?.trim() && (
             <span className="story-step-note">{activeStep.storyNote.trim()}</span>
           )}
@@ -1447,8 +1463,8 @@ function StoryView({ scene, onExit }) {
         <button
           type="button"
           aria-label="下一步"
-          disabled={currentStep === steps.length}
-          onClick={() => setStepIndex(currentStep + 1)}
+          disabled={stepIndex === lastStepIndex}
+          onClick={() => setStepIndex(stepIndex + 1)}
         >
           <ChevronIcon direction="right" />
         </button>
@@ -1792,10 +1808,17 @@ function App() {
     if (publishState === "working") return;
     setPublishState("working");
     try {
+      const publishedScene = excalidrawAPI
+        ? {
+            ...latestScene.current,
+            elements: stashStoryLinks(excalidrawAPI.getSceneElementsIncludingDeleted()),
+            files: excalidrawAPI.getFiles(),
+          }
+        : latestScene.current;
       const response = await fetch("/api/scenes", {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: await encodeScene(latestScene.current),
+        body: await encodeScene(publishedScene),
       });
       const { id } = response.ok ? await response.json() : {};
       if (!isSceneId(id)) throw new Error("Publishing failed");
@@ -1811,7 +1834,7 @@ function App() {
       setPublishState("error");
     }
     publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
-  }, [publishState]);
+  }, [excalidrawAPI, publishState]);
 
   const previewLinkAppearance = useCallback(({ icon, side, customIcon }) => {
     if (!linkEditorId) return;
@@ -2233,7 +2256,6 @@ function App() {
           UIOptions={{
             canvasActions: {
               loadScene: true,
-              saveToActiveFile: true,
               export: { saveFileToDisk: true },
             },
           }}
@@ -2241,7 +2263,6 @@ function App() {
         <MainMenu>
           <MainMenu.Group>
             <MainMenu.DefaultItems.LoadScene />
-            <MainMenu.DefaultItems.SaveToActiveFile />
             <MainMenu.DefaultItems.Export />
             <MainMenu.DefaultItems.SearchMenu />
             <MainMenu.DefaultItems.Help />

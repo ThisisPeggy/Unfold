@@ -351,6 +351,23 @@ export function getStorySteps(elements, storyPath) {
     .map(({ element }) => element);
 }
 
+export function getStoryViewBox(frame, focus, maxScale = 1, padding = 0) {
+  if (!focus) return frame;
+  const scale = Math.max(1, Math.min(
+    maxScale,
+    frame.width / Math.max(1, focus.width + padding),
+    frame.height / Math.max(1, focus.height + padding),
+  ));
+  const width = frame.width / scale;
+  const height = frame.height / scale;
+  return {
+    x: focus.x + focus.width / 2 - width / 2,
+    y: focus.y + focus.height / 2 - height / 2,
+    width,
+    height,
+  };
+}
+
 export function makeStoryPath(elements, storyPath) {
   return getStorySteps(elements, storyPath).map((step) => {
     const entry = {

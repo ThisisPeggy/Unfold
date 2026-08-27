@@ -8,6 +8,7 @@ import {
   getStoryIconKind,
   getStoryHref,
   getStorySteps,
+  getStoryViewBox,
   makeStoryPath,
   mergeHermesStoryPath,
   polishStarterElement,
@@ -18,6 +19,15 @@ import {
   textHighlightColor,
   textHighlightRects,
 } from "../src/story.js";
+
+test("frames story steps as a sharp SVG viewBox", () => {
+  const frame = { x: 0, y: 0, width: 1000, height: 500 };
+  assert.equal(getStoryViewBox(frame, null), frame);
+  assert.deepEqual(
+    getStoryViewBox(frame, { x: 400, y: 200, width: 100, height: 50 }, 2),
+    { x: 200, y: 100, width: 500, height: 250 },
+  );
+});
 
 test("chooses a doodle and places it beside linked elements", () => {
   assert.deepEqual(STORY_ICON_KINDS.slice(0, 3), ["camera", "page", "link"]);
