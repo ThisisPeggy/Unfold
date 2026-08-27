@@ -4,9 +4,11 @@ import { createRoot } from "react-dom/client";
 import {
   convertToExcalidrawElements,
   Excalidraw,
+  exportToBlob,
   exportToSvg,
   FONT_FAMILY,
   getCommonBounds,
+  loadFromBlob,
   MainMenu,
   newElementWith,
   viewportCoordsToSceneCoords,
@@ -19,8 +21,10 @@ import {
   decodeScene,
   encodeScene,
   isSceneId,
+  parseUnfoldScene,
   readScene,
   sceneIdFromPath,
+  serializeUnfoldScene,
   writeScene,
 } from "./storage.js";
 import { missingArrowhead } from "./tool-state.js";
@@ -41,6 +45,7 @@ import {
   getStoryIconImage,
   getStoryIconKind,
   getStoryHref,
+  getStoryStepMarkerOffsets,
   getStorySteps,
   getStoryViewBox,
   interpolateStoryViewBox,
@@ -48,6 +53,7 @@ import {
   mergeHermesStoryPath,
   polishStarterElement,
   safeStoryHref,
+  selectedTextElements,
   stashStoryLinks,
   storyIconKind,
   storyLinkGeometry,
@@ -418,6 +424,7 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSte
     (element) => !element.isDeleted && getStoryHref(element),
   );
   const storySteps = getStorySteps(elements, storyPath);
+  const stepMarkerOffsets = getStoryStepMarkerOffsets(storySteps);
 
   return (
     <>
@@ -443,7 +450,7 @@ function EditorLinkIcons({ elements, appState, activeLinkId, onEditLink, showSte
             );
           })}
           {showSteps && storySteps.map((element, index) => {
-            const x = element.x + element.width / 2;
+            const x = element.x + element.width / 2 + stepMarkerOffsets[index];
             const y = element.y - 14;
             const centerX = element.x + element.width / 2;
             const centerY = element.y + element.height / 2;
@@ -673,6 +680,14 @@ function HermesAssistantPanel({
     setInput("");
     requestAnimationFrame(() => composerRef.current?.focus());
   };
+  const retryMessage = [...messages].reverse().find((message) => message.retryPrompt);
+  const retry = () => {
+    if (!retryMessage) return;
+    setMessages((value) => value.map((item) =>
+      item.id === retryMessage.id ? { ...item, retryPrompt: null } : item,
+    ));
+    submitPrompt(retryMessage.retryPrompt, false);
+  };
 
   return (
     <aside
@@ -767,21 +782,6 @@ function HermesAssistantPanel({
                 role={message.error ? "alert" : undefined}
               >
                 <AssistantMessageText text={message.text} />
-                {message.retryPrompt && (
-                  <button
-                    type="button"
-                    className="assistant-retry"
-                    disabled={busy}
-                    onClick={() => {
-                      setMessages((value) => value.map((item) =>
-                        item.id === message.id ? { ...item, retryPrompt: null } : item,
-                      ));
-                      submitPrompt(message.retryPrompt, false);
-                    }}
-                  >
-                    重试
-                  </button>
-                )}
                 {message.plan && (
                   <section className="assistant-plan">
                     {message.plan.mode === "create" && (
@@ -892,6 +892,16 @@ function HermesAssistantPanel({
               {busy ? <StopIcon /> : <SendIcon />}
             </button>
           </form>
+          {retryMessage && (
+            <button
+              type="button"
+              className="assistant-retry assistant-retry--composer"
+              disabled={busy}
+              onClick={retry}
+            >
+              重试
+            </button>
+          )}
         </>
       )}
     </aside>
@@ -913,7 +923,16 @@ function StoryPathEditor({
   const [draggedStepId, setDraggedStepId] = useState(null);
   const [dropTargetId, setDropTargetId] = useState(null);
   const [editingStepId, setEditingStepId] = useState(null);
+  const listRef = useRef(null);
+  const previousStepCount = useRef(steps.length);
   const editingStep = steps.find((step) => step.id === editingStepId) ?? null;
+
+  useEffect(() => {
+    if (steps.length > previousStepCount.current) {
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    }
+    previousStepCount.current = steps.length;
+  }, [steps.length]);
 
   useEffect(() => {
     const closeOnEscape = (event) => {
@@ -934,12 +953,12 @@ function StoryPathEditor({
       <header>
         <div>
           <h2 id="story-path-title">讲解路径</h2>
-          <p>选择元素添加步骤，再写下要讲的内容。</p>
+          <p>选择元素添加步骤；同一元素可以重复出现。</p>
         </div>
         <button type="button" className="path-icon-button" aria-label="关闭讲解路径" onClick={onClose}>×</button>
       </header>
       {steps.length ? (
-        <ol className="story-path-list">
+        <ol ref={listRef} className="story-path-list">
           {steps.map((element, index) => (
             <li
               key={element.id}
@@ -947,7 +966,7 @@ function StoryPathEditor({
               draggable
               title="拖动排序"
               onDragStart={(event) => {
-                if (event.target.closest("button")) {
+                if (event.target.closest(".path-icon-button")) {
                   event.preventDefault();
                   return;
                 }
@@ -1350,6 +1369,15 @@ function formatStoryViewBox({ x, y, width, height }) {
   return `${x} ${y} ${width} ${height}`;
 }
 
+function syncBoldButton(elements, appState) {
+  const button = document.querySelector('[data-testid="font-family-bold"]');
+  if (!button) return;
+  const texts = selectedTextElements(elements, appState);
+  const active = texts.length > 0 && texts.every((text) => text.customData?.unfoldBold);
+  button.classList.toggle("unfold-bold-active", active);
+  button.setAttribute("aria-pressed", String(active));
+}
+
 function readStoryArtwork(svg) {
   const { x, y, width, height } = svg.viewBox.baseVal;
   if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
@@ -1560,6 +1588,45 @@ function StoryView({ scene, onExit }) {
   );
 }
 
+function ExportDialog({ error, onClose, onExport }) {
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    dialogRef.current?.showModal();
+  }, []);
+
+  return (
+    <dialog
+      aria-labelledby="export-dialog-title"
+      className="unfold-export-dialog"
+      onCancel={onClose}
+      onClose={onClose}
+      ref={dialogRef}
+    >
+      <header>
+        <h2 id="export-dialog-title">导出</h2>
+        <button aria-label="关闭" onClick={onClose} type="button">×</button>
+      </header>
+      <p>选择导出类型</p>
+      <div className="unfold-export-options">
+        <button autoFocus onClick={() => onExport("unfold")} type="button">
+          <strong>UNFOLD</strong>
+          <span>可再次打开和编辑</span>
+        </button>
+        <button onClick={() => onExport("png")} type="button">
+          <strong>PNG</strong>
+          <span>导出为图片</span>
+        </button>
+        <button onClick={() => onExport("svg")} type="button">
+          <strong>SVG</strong>
+          <span>导出为矢量图片</span>
+        </button>
+      </div>
+      {error && <p className="unfold-export-error" role="alert">{error}</p>}
+    </dialog>
+  );
+}
+
 function App() {
   const sharedPayload = useMemo(
     () => new URLSearchParams(location.hash.slice(1)).get("scene"),
@@ -1592,10 +1659,13 @@ function App() {
   const [assistantVisited, setAssistantVisited] = useState(false);
   const [agentUndoAvailable, setAgentUndoAvailable] = useState(false);
   const [hermesConnected, setHermesConnected] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
   const linkEditorTrigger = useRef(null);
   const pathButtonRef = useRef(null);
   const assistantButtonRef = useRef(null);
+  const fileInputRef = useRef(null);
   const saveTimer = useRef();
   const publishTimer = useRef();
   const highlighterPointerUp = useRef(null);
@@ -1835,6 +1905,42 @@ function App() {
     }
   }, [excalidrawAPI, highlighterActive]);
 
+  useEffect(() => {
+    if (!excalidrawAPI) return undefined;
+    const keepTextEditing = (event) => {
+      if (event.target.closest?.('[data-testid="font-family-bold"]')) {
+        event.preventDefault();
+      }
+    };
+    const toggleBold = (event) => {
+      const button = event.target.closest?.('[data-testid="font-family-bold"]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const elements = excalidrawAPI.getSceneElements();
+      const appState = excalidrawAPI.getAppState();
+      const selected = selectedTextElements(elements, appState);
+      if (!selected.length) return;
+      const selectedIds = new Set(selected.map((element) => element.id));
+      const bold = !selected.every((element) => element.customData?.unfoldBold);
+      excalidrawAPI.updateScene({
+        elements: elements.map((element) => selectedIds.has(element.id)
+          ? newElementWith(element, {
+              customData: { ...element.customData, unfoldBold: bold || undefined },
+            })
+          : element),
+      });
+      button.classList.toggle("unfold-bold-active", bold);
+      button.setAttribute("aria-pressed", String(bold));
+    };
+    document.addEventListener("pointerdown", keepTextEditing, true);
+    document.addEventListener("click", toggleBold, true);
+    return () => {
+      document.removeEventListener("pointerdown", keepTextEditing, true);
+      document.removeEventListener("click", toggleBold, true);
+    };
+  }, [excalidrawAPI]);
+
   const save = useCallback((elements, appState, files) => {
     window.clearTimeout(saveTimer.current);
     setSaveState("saving");
@@ -1845,6 +1951,7 @@ function App() {
       setHighlighterActive(false);
     }
     const savedElements = stashStoryLinks(elements);
+    syncBoldButton(savedElements, appState);
     const nextEditorViewSignature = editorLinkSignature(savedElements, appState);
     if (nextEditorViewSignature !== editorViewSignature.current) {
       editorViewSignature.current = nextEditorViewSignature;
@@ -1880,7 +1987,10 @@ function App() {
       setAgentUndoAvailable(false);
     }
     if (savedElements !== elements) {
-      requestAnimationFrame(() => excalidrawAPI?.updateScene({ elements: savedElements }));
+      requestAnimationFrame(() => excalidrawAPI?.updateScene({
+        elements: savedElements,
+        appState: { showHyperlinkPopup: false },
+      }));
     }
     saveTimer.current = window.setTimeout(() => {
       setSaveState(
@@ -1922,6 +2032,80 @@ function App() {
     }
     publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
   }, [excalidrawAPI, publishState]);
+
+  const saveUnfoldFile = useCallback(() => {
+    const url = URL.createObjectURL(new Blob(
+      [serializeUnfoldScene(latestScene.current)],
+      { type: "application/json" },
+    ));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "UNFOLD.unfold";
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url));
+  }, []);
+
+  const exportScene = useCallback(async (format) => {
+    setExportError("");
+    try {
+      if (format === "unfold") {
+        saveUnfoldFile();
+      } else {
+        const current = latestScene.current;
+        const options = {
+          elements: current.elements.filter((element) => !element.isDeleted),
+          appState: current.appState,
+          files: current.files,
+          exportPadding: 32,
+        };
+        const blob = format === "png"
+          ? await exportToBlob({ ...options, mimeType: "image/png" })
+          : new Blob(
+              [new XMLSerializer().serializeToString(await exportToSvg(options))],
+              { type: "image/svg+xml" },
+            );
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `UNFOLD.${format}`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url));
+      }
+      setExportOpen(false);
+    } catch {
+      setExportError("导出失败，请稍后重试。");
+    }
+  }, [saveUnfoldFile]);
+
+  const openUnfoldFile = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const imported = file.name.toLowerCase().endsWith(".unfold")
+        ? parseUnfoldScene(await file.text())
+        : await loadFromBlob(
+            file,
+            latestScene.current.appState,
+            latestScene.current.elements,
+          );
+      const nextScene = withoutNativeLinks({
+        elements: imported.elements ?? [],
+        appState: imported.appState ?? {},
+        files: imported.files ?? {},
+        storyPath: Array.isArray(imported.storyPath) ? imported.storyPath : [],
+      });
+      latestScene.current = nextScene;
+      setStoryPath(nextScene.storyPath);
+      setEditorView({ elements: nextScene.elements, appState: nextScene.appState });
+      setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+      excalidrawAPI?.resetScene();
+      excalidrawAPI?.addFiles(Object.values(nextScene.files));
+      excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
+    } catch {
+      window.alert("无法打开这个 UNFOLD 文件。");
+    }
+  }, [excalidrawAPI]);
 
   const previewLinkAppearance = useCallback(({ icon, side, customIcon }) => {
     if (!linkEditorId) return;
@@ -2320,6 +2504,13 @@ function App() {
 
   return (
     <main className={`canvas-app${isShared ? " canvas-app--shared" : ""}${highlighterActive ? " canvas-app--highlighting" : ""}`}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        hidden
+        accept=".unfold,.excalidraw,application/vnd.excalidraw+json"
+        onChange={openUnfoldFile}
+      />
       {!isShared && !preview && excalidrawAPI && (
         <HighlighterTool
           active={highlighterActive}
@@ -2380,15 +2571,25 @@ function App() {
           renderTopRightUI={() => renderCanvasControls(true)}
           UIOptions={{
             canvasActions: {
-              loadScene: true,
-              export: { saveFileToDisk: true },
+              loadScene: false,
+              export: { saveFileToDisk: false },
             },
           }}
         >
         <MainMenu>
           <MainMenu.Group>
-            <MainMenu.DefaultItems.LoadScene />
-            <MainMenu.DefaultItems.Export />
+            <MainMenu.Item onSelect={() => fileInputRef.current?.click()}>
+              打开 UNFOLD 文件
+            </MainMenu.Item>
+          </MainMenu.Group>
+          <MainMenu.Separator />
+          <MainMenu.Group>
+            <MainMenu.Item onSelect={() => setExportOpen(true)}>
+              导出…
+            </MainMenu.Item>
+          </MainMenu.Group>
+          <MainMenu.Separator />
+          <MainMenu.Group>
             <MainMenu.DefaultItems.SearchMenu />
             <MainMenu.DefaultItems.Help />
             <MainMenu.DefaultItems.ClearCanvas />
@@ -2409,9 +2610,9 @@ function App() {
               把经历、想法和故事画出来。
             </WelcomeScreen.Center.Heading>
             <WelcomeScreen.Center.Menu>
-              <WelcomeScreen.Center.MenuItemLoadScene>
+              <WelcomeScreen.Center.MenuItem onSelect={() => fileInputRef.current?.click()}>
                 打开一张画板
-              </WelcomeScreen.Center.MenuItemLoadScene>
+              </WelcomeScreen.Center.MenuItem>
               <WelcomeScreen.Center.MenuItemHelp />
             </WelcomeScreen.Center.Menu>
           </WelcomeScreen.Center>
@@ -2419,7 +2620,7 @@ function App() {
             文字、箭头和图片都在这里
           </WelcomeScreen.Hints.ToolbarHint>
           <WelcomeScreen.Hints.MenuHint>
-            打开、保存与导出
+            打开与导出
           </WelcomeScreen.Hints.MenuHint>
           <WelcomeScreen.Hints.HelpHint>
             快捷键
@@ -2447,6 +2648,13 @@ function App() {
           onSave={applyLinkSettings}
           onPreview={previewLinkAppearance}
           onRemove={() => applyLinkSettings(null)}
+        />
+      )}
+      {!preview && exportOpen && (
+        <ExportDialog
+          error={exportError}
+          onClose={() => setExportOpen(false)}
+          onExport={exportScene}
         />
       )}
     </main>

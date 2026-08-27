@@ -669,6 +669,22 @@ body,
   margin-top: 6px;
 }
 
+.assistant-retry--composer {
+  min-height: 40px;
+  margin: -8px 16px 16px;
+  color: var(--tale-danger);
+  background: rgb(212 76 71 / 8%);
+}
+
+.assistant-retry--composer:hover:not(:disabled) {
+  background: rgb(212 76 71 / 12%);
+}
+
+.assistant-retry--composer:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .assistant-plan {
   margin-top: 10px;
   overflow: hidden;
@@ -951,7 +967,18 @@ body,
   margin: 10px -4px 8px;
   padding: 0;
   overflow-y: auto;
+  scrollbar-color: var(--tale-line) transparent;
+  scrollbar-width: thin;
   list-style: none;
+}
+
+.story-path-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.story-path-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--tale-line);
 }
 
 .story-path-list li {
@@ -1633,9 +1660,8 @@ body,
 }
 
 .story-link-icon {
-  transform-box: fill-box;
-  transform-origin: center;
-  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  opacity: 0.72;
+  transition: opacity 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .story-link-underline {
@@ -1946,7 +1972,7 @@ body,
 .story-link:hover .story-link-icon,
 .story-link:focus-visible .story-link-icon,
 .story-link--active .story-link-icon {
-  transform: translateY(-2px) rotate(-4deg);
+  opacity: 1;
 }
 
 .story-link:hover .story-link-underline,
@@ -2164,12 +2190,6 @@ body,
     animation: none;
   }
 
-  .story-link:hover .story-link-icon,
-  .story-link:focus-visible .story-link-icon,
-  .story-link--active .story-link-icon {
-    transform: none;
-  }
-
   .story-camera-flash {
     animation: none !important;
   }
@@ -2205,4 +2225,100 @@ body,
 .excalidraw [data-testid="font-family-bold"]::before {
   content: "B";
   font: 700 17px/1 Arial, sans-serif;
+}
+
+.excalidraw [data-testid="font-family-bold"].unfold-bold-active {
+  color: var(--tale-accent);
+  background: var(--tale-accent-soft);
+}
+
+.unfold-export-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid #e5e5e3;
+  border-radius: 12px;
+  color: var(--color-ink, #37352f);
+  background: #fff;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 14%);
+}
+
+.unfold-export-dialog::backdrop {
+  background: rgb(0 0 0 / 24%);
+}
+
+.unfold-export-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.unfold-export-dialog h2,
+.unfold-export-dialog p {
+  margin: 0;
+}
+
+.unfold-export-dialog h2 {
+  font-size: 18px;
+}
+
+.unfold-export-dialog > p {
+  margin-top: 6px;
+  color: #787774;
+  font-size: 13px;
+}
+
+.unfold-export-dialog header button {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.unfold-export-dialog header button:hover {
+  background: #f5f5f4;
+}
+
+.unfold-export-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.unfold-export-options button {
+  min-height: 96px;
+  padding: 14px 10px;
+  border: 1px solid #e5e5e3;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+}
+
+.unfold-export-options button:hover,
+.unfold-export-options button:focus-visible {
+  border-color: #2383e2;
+  background: #f7fbff;
+  outline: none;
+}
+
+.unfold-export-options strong,
+.unfold-export-options span {
+  display: block;
+}
+
+.unfold-export-options span {
+  margin-top: 8px;
+  color: #787774;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.unfold-export-dialog .unfold-export-error {
+  margin-top: 12px;
+  color: #c92a2a;
 }

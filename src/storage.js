@@ -16,6 +16,23 @@ export function writeScene(storage, key, scene) {
   }
 }
 
+export function serializeUnfoldScene(scene) {
+  return JSON.stringify({ ...scene, type: "unfold", version: 1 });
+}
+
+export function parseUnfoldScene(value) {
+  const scene = JSON.parse(value);
+  if (
+    scene?.type !== "unfold" ||
+    !Array.isArray(scene.elements) ||
+    !scene.appState || typeof scene.appState !== "object" ||
+    !scene.files || typeof scene.files !== "object"
+  ) {
+    throw new Error("Invalid UNFOLD file");
+  }
+  return scene;
+}
+
 export const MAX_SHARED_SCENE_BYTES = 1_500_000;
 export const MAX_ENCODED_SCENE_LENGTH = MAX_SHARED_SCENE_BYTES * 2;
 

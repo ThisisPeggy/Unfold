@@ -5,8 +5,10 @@ import {
   encodeScene,
   isEncodedScene,
   isSceneId,
+  parseUnfoldScene,
   readScene,
   sceneIdFromPath,
+  serializeUnfoldScene,
   writeScene,
 } from "../src/storage.js";
 import { missingArrowhead } from "../src/tool-state.js";
@@ -22,6 +24,21 @@ test("scene storage survives invalid and valid local data", () => {
   const scene = { elements: [{ id: "hello" }], appState: {}, files: {} };
   assert.equal(writeScene(storage, "scene", scene), true);
   assert.deepEqual(readScene(storage, "scene"), scene);
+});
+
+test("UNFOLD files preserve the complete scene and reject other JSON", () => {
+  const scene = {
+    elements: [{ id: "hello" }],
+    appState: {},
+    files: {},
+    storyPath: [{ id: "step", elementIds: ["hello"] }],
+  };
+  assert.deepEqual(parseUnfoldScene(serializeUnfoldScene(scene)), {
+    ...scene,
+    type: "unfold",
+    version: 1,
+  });
+  assert.throws(() => parseUnfoldScene('{"type":"excalidraw"}'));
 });
 
 test("shared scene links round-trip and reject malformed data", async () => {

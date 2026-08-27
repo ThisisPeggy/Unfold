@@ -291,6 +291,20 @@ export function getStoryHref(element) {
   return safeStoryHref(element?.customData?.storyLink ?? element?.link);
 }
 
+export function selectedTextElements(elements, appState) {
+  const ids = new Set(Object.keys(appState.selectedElementIds ?? {}));
+  if (appState.editingTextElement?.id) ids.add(appState.editingTextElement.id);
+  for (const element of elements) {
+    if (!ids.has(element.id)) continue;
+    for (const bound of element.boundElements ?? []) {
+      if (bound.type === "text") ids.add(bound.id);
+    }
+  }
+  return elements.filter((element) =>
+    element.type === "text" && !element.isDeleted && ids.has(element.id),
+  );
+}
+
 function resolveStoryStep(entry, elementsById) {
   const members = [...new Set(Array.isArray(entry?.elementIds) ? entry.elementIds : [])]
     .map((id) => elementsById.get(id))
@@ -349,6 +363,39 @@ export function getStorySteps(elements, storyPath) {
     }))
     .sort((a, b) => a.step - b.step || a.index - b.index)
     .map(({ element }) => element);
+}
+
+export function getStoryStepMarkerOffsets(steps, gap = 24) {
+  const positions = steps.map((step, index) => ({
+    index,
+    x: step.x + step.width / 2,
+    y: step.y - 14,
+  }));
+  const pending = new Set(positions.map(({ index }) => index));
+  const offsets = steps.map(() => 0);
+
+  while (pending.size) {
+    const group = [pending.values().next().value];
+    pending.delete(group[0]);
+    for (let cursor = 0; cursor < group.length; cursor += 1) {
+      for (const index of [...pending]) {
+        if (
+          Math.abs(positions[index].x - positions[group[cursor]].x) < gap &&
+          Math.abs(positions[index].y - positions[group[cursor]].y) < gap
+        ) {
+          group.push(index);
+          pending.delete(index);
+        }
+      }
+    }
+    if (group.length < 2) continue;
+    group.sort((a, b) => positions[a].x - positions[b].x || a - b);
+    const center = group.reduce((sum, index) => sum + positions[index].x, 0) / group.length;
+    group.forEach((index, order) => {
+      offsets[index] = center + (order - (group.length - 1) / 2) * gap - positions[index].x;
+    });
+  }
+  return offsets;
 }
 
 export function getStoryFrame(bounds, padding) {
@@ -516,8 +563,8 @@ export function storyLinkGeometry(element) {
       side === "right"
         ? element.x + element.width + size * 0.25
         : element.x - size * 1.25,
-    iconY: element.y + (element.height - size) / 2,
-    underlineY: element.y + element.height + size * 0.16,
+    iconY: element.y + (element.height - size) / 2 - size * 0.1,
+    underlineY: element.y + element.height - size * 0.08,
   };
 }
 

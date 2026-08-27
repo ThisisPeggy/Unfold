@@ -8,6 +8,7 @@ import {
   getStoryIconImage,
   getStoryIconKind,
   getStoryHref,
+  getStoryStepMarkerOffsets,
   getStorySteps,
   getStoryViewBox,
   interpolateStoryViewBox,
@@ -15,6 +16,7 @@ import {
   mergeHermesStoryPath,
   polishStarterElement,
   safeStoryHref,
+  selectedTextElements,
   stashStoryLinks,
   storyIconKind,
   storyLinkGeometry,
@@ -22,6 +24,22 @@ import {
   textHighlightRects,
   transformStoryCamera,
 } from "../src/story.js";
+
+test("finds selected, bound, and actively edited text for bold formatting", () => {
+  const elements = [
+    { id: "shape", type: "rectangle", boundElements: [{ id: "label", type: "text" }] },
+    { id: "label", type: "text" },
+    { id: "editing", type: "text" },
+    { id: "deleted", type: "text", isDeleted: true },
+  ];
+  assert.deepEqual(
+    selectedTextElements(elements, {
+      selectedElementIds: { shape: true, deleted: true },
+      editingTextElement: { id: "editing" },
+    }).map(({ id }) => id),
+    ["label", "editing"],
+  );
+});
 
 test("frames story steps as a sharp SVG viewBox", () => {
   const frame = getStoryFrame([300, -100, 1300, 400], 32);
@@ -37,6 +55,21 @@ test("frames story steps as a sharp SVG viewBox", () => {
   assert.deepEqual(
     interpolateStoryViewBox(frame, { x: 0, y: 0, width: 1, height: 1 }, 1),
     { x: 0, y: 0, width: 1, height: 1 },
+  );
+});
+
+test("separates every step marker whose circles would overlap", () => {
+  const steps = [
+    { id: "step-3", x: 50, y: 20, width: 100 },
+    { id: "step-1", x: 62, y: 20, width: 100 },
+    { id: "step-5", x: 74, y: 20, width: 100 },
+    { id: "step-2", x: 200, y: 20, width: 100 },
+  ];
+  const offsets = getStoryStepMarkerOffsets(steps);
+  assert.deepEqual(offsets, [-12, 0, 12, 0]);
+  assert.deepEqual(
+    steps.slice(0, 3).map((step, index) => step.x + step.width / 2 + offsets[index]),
+    [88, 112, 136],
   );
 });
 
@@ -88,8 +121,8 @@ test("chooses a doodle and places it beside linked elements", () => {
     size: 20,
     side: "left",
     iconX: 75,
-    iconY: 22,
-    underlineY: 47.2,
+    iconY: 20,
+    underlineY: 42.4,
   });
   assert.deepEqual(
     polishStarterElement({ type: "text", text: "照片与生活", x: 700, y: 330 }),
@@ -129,6 +162,11 @@ test("chooses a doodle and places it beside linked elements", () => {
   assert.equal(customerMapStep.storyTitle, "从全球市场开始");
   assert.match(customerMapStep.storyNote, /可联系时间/);
   assert.deepEqual(makeStoryPath(customerMapElements, customerMapPath), customerMapPath);
+  const repeatedPath = [
+    { id: "first", elementIds: ["a"] },
+    { id: "fifth", elementIds: ["a"], title: "再次回到 A" },
+  ];
+  assert.deepEqual(makeStoryPath(customerMapElements, repeatedPath), repeatedPath);
 });
 
 test("creates a complete canvas and lecture path from structured content", () => {

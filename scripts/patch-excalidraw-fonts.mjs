@@ -84,12 +84,47 @@ const patches = [
     'uri:globalThis.location.origin+"/fonts/LXGWWenKaiGBLite-Regular.ttf"',
   ],
   [
-    'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value);\n        }\n      },\n      [onSelect]\n    );',
-    'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value === FONT_FAMILY.Nunito && selectedFontFamily === value ? FONT_FAMILY.Helvetica : value);\n        }\n      },\n      [onSelect, selectedFontFamily]\n    );',
+    'var getFontString = ({\n  fontSize,\n  fontFamily\n}) => {\n  return `${fontSize}px ${getFontFamilyString({ fontFamily })}`;\n};',
+    'var getFontString = ({\n  fontSize,\n  fontFamily,\n  customData\n}) => {\n  return `${customData?.unfoldBold ? "700 " : ""}${fontSize}px ${getFontFamilyString({ fontFamily })}`;\n};',
   ],
   [
-    'let l=R2(()=>Uy,[]),s=P2(c=>{c&&r(c)},[r]);',
+    'Ee=({fontSize:e,fontFamily:t})=>`${e}px ${ea({fontFamily:t})}`',
+    'Ee=({fontSize:e,fontFamily:t,customData:n})=>`${n?.unfoldBold?"700 ":""}${e}px ${ea({fontFamily:t})}`',
+  ],
+  [
+    'text.setAttribute("font-family", getFontFamilyString(element));\n          text.setAttribute("font-size", `${element.fontSize}px`);',
+    'text.setAttribute("font-family", getFontFamilyString(element));\n          text.setAttribute("font-size", `${element.fontSize}px`);\n          element.customData?.unfoldBold && text.setAttribute("font-weight", "700");',
+  ],
+  [
+    '_.setAttribute("font-family",ea(e)),_.setAttribute("font-size",`${e.fontSize}px`)',
+    '_.setAttribute("font-family",ea(e)),_.setAttribute("font-size",`${e.fontSize}px`),e.customData?.unfoldBold&&_.setAttribute("font-weight","700")',
+  ],
+  [
+    'if (`${updatedTextElement.fontSize}px` !== editable2.style.fontSize) {\n      return true;\n    }\n    return false;',
+    'if (`${updatedTextElement.fontSize}px` !== editable2.style.fontSize) {\n      return true;\n    }\n    return (editable2.style.fontWeight === "700") !== Boolean(updatedTextElement.customData?.unfoldBold);',
+  ],
+  [
+    'return Xr({fontFamily:F.fontFamily})!==j||`${F.fontSize}px`!==O.style.fontSize',
+    'return Xr({fontFamily:F.fontFamily})!==j||`${F.fontSize}px`!==O.style.fontSize||(O.style.fontWeight==="700")!==!!F.customData?.unfoldBold',
+  ],
+];
+
+const migrations = [
+  [
+    'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value === FONT_FAMILY.Nunito && selectedFontFamily === value ? FONT_FAMILY.Helvetica : value);\n        }\n      },\n      [onSelect, selectedFontFamily]\n    );',
+    'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value);\n        }\n      },\n      [onSelect]\n    );',
+  ],
+  [
     'let l=R2(()=>Uy,[]),s=P2(c=>{c&&r(c===Kr.Nunito&&o===c?Kr.Helvetica:c)},[r,o]);',
+    'let l=R2(()=>Uy,[]),s=P2(c=>{c&&r(c)},[r]);',
+  ],
+  [
+    'fontFamily: nextFontFamily,\n                  lineHeight: getLineHeight(nextFontFamily),\n                  ...(nextFontFamily === FONT_FAMILY.Nunito && oldElement.fontFamily !== nextFontFamily && oldElement.autoResize ? { autoResize: false, customData: { ...oldElement.customData, unfoldBoldAutoResize: true } } : oldElement.fontFamily === FONT_FAMILY.Nunito && nextFontFamily !== FONT_FAMILY.Nunito && oldElement.customData?.unfoldBoldAutoResize ? { autoResize: true, customData: { ...oldElement.customData, unfoldBoldAutoResize: undefined } } : {})',
+    'fontFamily: nextFontFamily,\n                  lineHeight: getLineHeight(nextFontFamily)',
+  ],
+  [
+    '{fontFamily:d,lineHeight:$o(d),...d===Kr.Nunito&&S.fontFamily!==d&&S.autoResize?{autoResize:!1,customData:{...S.customData,unfoldBoldAutoResize:!0}}:S.fontFamily===Kr.Nunito&&d!==Kr.Nunito&&S.customData?.unfoldBoldAutoResize?{autoResize:!0,customData:{...S.customData,unfoldBoldAutoResize:void 0}}:{}}',
+    '{fontFamily:d,lineHeight:$o(d)}',
   ],
 ];
 
@@ -97,6 +132,11 @@ let applied = 0;
 for (const file of files) {
   let source = fs.readFileSync(file, "utf8");
   let changed = false;
+  for (const [before, after] of migrations) {
+    if (!source.includes(before)) continue;
+    source = source.replace(before, after);
+    changed = true;
+  }
   for (const [before, after] of patches) {
     if (source.includes(after)) continue;
     if (!source.includes(before)) continue;
@@ -133,12 +173,10 @@ const localFontOriginVerified = files.filter((file) => {
   return source.includes('location.origin + "/fonts/NotoSansCJKsc-Bold.otf"') ||
     source.includes('location.origin+"/fonts/NotoSansCJKsc-Bold.otf"');
 }).length;
-const boldToggleVerified = files.filter((file) => {
-  const source = fs.readFileSync(file, "utf8");
-  return source.includes("selectedFontFamily === value ? FONT_FAMILY.Helvetica") ||
-    source.includes("o===c?Kr.Helvetica");
-}).length;
+const trueBoldVerified = files.filter((file) =>
+  fs.readFileSync(file, "utf8").includes("unfoldBold"),
+).length;
 
-if (customFontsVerified !== 2 || boldFontVerified !== 2 || boldLabelVerified !== 2 || boldIconVerified !== 2 || opentypeFormatVerified !== 2 || localFontOriginVerified !== 2 || boldToggleVerified !== 2) {
+if (customFontsVerified !== 2 || boldFontVerified !== 2 || boldLabelVerified !== 2 || boldIconVerified !== 2 || opentypeFormatVerified !== 2 || localFontOriginVerified !== 2 || trueBoldVerified !== 4) {
   throw new Error(`Excalidraw font patch verification failed (${applied} replacements applied)`);
 }
