@@ -1157,21 +1157,16 @@ body,
   box-shadow: 0 0 0 2px rgb(35 131 226 / 12%);
 }
 
-.story-camera-setting,
-.story-camera-setting > span,
-.story-camera-setting > div {
-  display: flex;
-  align-items: center;
-}
-
 .story-camera-setting {
-  justify-content: space-between;
+  display: grid;
   gap: 8px;
 }
 
-.story-camera-setting > span {
+.story-camera-setting__header {
+  display: flex;
   min-width: 0;
   align-items: flex-start;
+  justify-content: space-between;
   flex-direction: column;
   gap: 2px;
 }
@@ -1184,8 +1179,9 @@ body,
   white-space: nowrap;
 }
 
-.story-camera-setting > div {
-  flex: 0 0 auto;
+.story-camera-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
 
@@ -1199,6 +1195,46 @@ body,
   font: 600 10px/1 var(--tale-font);
   cursor: pointer;
   transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.story-camera-setting button.is-active {
+  color: #184e7a;
+  background: var(--tale-accent-soft);
+}
+
+.story-camera-adjustments {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tale-line);
+}
+
+.story-camera-adjustments > span {
+  color: var(--tale-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.story-camera-button-row {
+  display: grid;
+  grid-template-columns: repeat(4, 40px);
+  gap: 4px;
+}
+
+.story-camera-button-row--zoom {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.story-camera-button-row svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
 }
 
 .story-camera-setting button:hover {
@@ -2018,12 +2054,6 @@ body,
 }
 
 @media (max-width: 1440px) {
-  .excalidraw:not(.excalidraw--mobile) .canvas-controls--embedded {
-    position: absolute;
-    top: 16px;
-    right: 12px;
-  }
-
   .excalidraw--mobile .canvas-controls--embedded {
     position: fixed;
     top: 56px;
@@ -2037,12 +2067,6 @@ body,
 
   .hermes-assistant-panel {
     top: 100px;
-  }
-}
-
-@media (max-width: 1023px) {
-  .excalidraw:not(.excalidraw--mobile) .canvas-controls--embedded {
-    top: 60px;
   }
 }
 
@@ -2131,6 +2155,7 @@ body,
   .hermes-assistant-panel,
   .story-path-editor,
   .path-icon-button,
+  .story-camera-setting button,
   .story-steps button,
   .story-link-icon,
   .story-link-underline,

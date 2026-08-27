@@ -4,11 +4,13 @@ import {
   STORY_ICON_KINDS,
   createGeneratedLecture,
   editorLinkSignature,
+  getStoryFrame,
   getStoryIconImage,
   getStoryIconKind,
   getStoryHref,
   getStorySteps,
   getStoryViewBox,
+  interpolateStoryViewBox,
   makeStoryPath,
   mergeHermesStoryPath,
   polishStarterElement,
@@ -18,14 +20,35 @@ import {
   storyLinkGeometry,
   textHighlightColor,
   textHighlightRects,
+  transformStoryCamera,
 } from "../src/story.js";
 
 test("frames story steps as a sharp SVG viewBox", () => {
-  const frame = { x: 0, y: 0, width: 1000, height: 500 };
+  const frame = getStoryFrame([300, -100, 1300, 400], 32);
+  assert.deepEqual(frame, { x: 268, y: -132, width: 1064, height: 564 });
   assert.equal(getStoryViewBox(frame, null), frame);
   assert.deepEqual(
-    getStoryViewBox(frame, { x: 400, y: 200, width: 100, height: 50 }, 2),
-    { x: 200, y: 100, width: 500, height: 250 },
+    getStoryViewBox(frame, { x: 700, y: 100, width: 100, height: 50 }, 2),
+    { x: 484, y: -16, width: 532, height: 282 },
+  );
+  const customCamera = { x: 600, y: 0, width: 266, height: 141 };
+  assert.deepEqual(getStoryViewBox(frame, customCamera, 4), customCamera);
+  assert.deepEqual(interpolateStoryViewBox(frame, { x: 0, y: 0, width: 1, height: 1 }, 0), frame);
+  assert.deepEqual(
+    interpolateStoryViewBox(frame, { x: 0, y: 0, width: 1, height: 1 }, 1),
+    { x: 0, y: 0, width: 1, height: 1 },
+  );
+});
+
+test("pans and zooms a saved story camera", () => {
+  const camera = { x: 100, y: 50, width: 400, height: 200 };
+  assert.deepEqual(
+    transformStoryCamera(camera, { zoom: 0.8 }),
+    { x: 140, y: 70, width: 320, height: 160 },
+  );
+  assert.deepEqual(
+    transformStoryCamera(camera, { panX: 0.125 }),
+    { x: 150, y: 50, width: 400, height: 200 },
   );
 });
 

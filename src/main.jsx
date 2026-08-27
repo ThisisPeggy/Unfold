@@ -37,11 +37,13 @@ import {
   STORY_ICON_KINDS,
   createGeneratedLecture,
   editorLinkSignature,
+  getStoryFrame,
   getStoryIconImage,
   getStoryIconKind,
   getStoryHref,
   getStorySteps,
   getStoryViewBox,
+  interpolateStoryViewBox,
   makeStoryPath,
   mergeHermesStoryPath,
   polishStarterElement,
@@ -51,12 +53,29 @@ import {
   storyLinkGeometry,
   textHighlightColor,
   textHighlightRects,
+  transformStoryCamera,
 } from "./story.js";
 
 const STORAGE_KEY = "story-canvas.scene.v1";
 const PAPER = "#ffffff";
 const DEFAULT_STROKE_COLOR = "#37352f";
 const STORY_PADDING = 32;
+const STORY_CAMERA_DURATION = 280;
+
+function storyPaddingForElements(elements) {
+  return Math.max(
+    STORY_PADDING,
+    ...elements
+      .filter((element) => getStoryHref(element) && getStoryIconKind(element) !== "none")
+      .map((element) => storyLinkGeometry(element).size * 1.5),
+  );
+}
+
+function storyFrameForElements(elements) {
+  const visible = elements.filter((element) => !element.isDeleted);
+  const bounds = visible.length ? getCommonBounds(visible) : [0, 0, 1, 1];
+  return getStoryFrame(bounds, storyPaddingForElements(visible));
+}
 
 function hermesSceneRevision(scene) {
   return JSON.stringify([
@@ -883,10 +902,12 @@ function StoryPathEditor({
   steps,
   selectedCount,
   onAdd,
+  onAdjustCamera,
   onCaptureCamera,
   onClose,
   onMove,
   onRemove,
+  onSetCameraPreset,
   onUpdate,
 }) {
   const [draggedStepId, setDraggedStepId] = useState(null);
@@ -1034,20 +1055,57 @@ function StoryPathEditor({
             />
           </label>
           <div className="story-camera-setting">
-            <span>
+            <span className="story-camera-setting__header">
               <strong>镜头</strong>
-              <small>{editingStep.storyCamera ? "使用自定义画面" : "自动聚焦所选元素"}</small>
+              <small>{editingStep.storyCamera ? "自定义镜头，可继续推拉或平移" : "自动聚焦所选元素"}</small>
             </span>
-            <div>
-              {editingStep.storyCamera && (
-                <button type="button" onClick={() => onUpdate(editingStep.id, { camera: null })}>
-                  重置
-                </button>
-              )}
+            <div className="story-camera-presets" role="group" aria-label="镜头预设">
+              <button
+                type="button"
+                className={editingStep.storyCamera ? "" : "is-active"}
+                aria-pressed={!editingStep.storyCamera}
+                onClick={() => onUpdate(editingStep.id, { camera: null })}
+              >
+                自动
+              </button>
+              <button type="button" onClick={() => onSetCameraPreset(editingStep.id, "close-up")}>
+                近景
+              </button>
+              <button type="button" onClick={() => onSetCameraPreset(editingStep.id, "overview")}>
+                全景
+              </button>
               <button type="button" onClick={() => onCaptureCamera(editingStep.id)}>
-                {editingStep.storyCamera ? "更新画面" : "使用当前画面"}
+                当前画面
               </button>
             </div>
+            {editingStep.storyCamera && (
+              <div className="story-camera-adjustments">
+                <span>平移</span>
+                <div className="story-camera-button-row" role="group" aria-label="平移镜头">
+                  {[
+                    ["left", "向左平移", { panX: -0.12 }],
+                    ["up", "向上平移", { panY: -0.12 }],
+                    ["down", "向下平移", { panY: 0.12 }],
+                    ["right", "向右平移", { panX: 0.12 }],
+                  ].map(([direction, label, adjustment]) => (
+                    <button
+                      key={direction}
+                      type="button"
+                      aria-label={label}
+                      title={label}
+                      onClick={() => onAdjustCamera(editingStep.id, adjustment)}
+                    >
+                      <ChevronIcon direction={direction} />
+                    </button>
+                  ))}
+                </div>
+                <span>推拉</span>
+                <div className="story-camera-button-row story-camera-button-row--zoom" role="group" aria-label="推拉镜头">
+                  <button type="button" onClick={() => onAdjustCamera(editingStep.id, { zoom: 0.8 })}>拉近</button>
+                  <button type="button" onClick={() => onAdjustCamera(editingStep.id, { zoom: 1.25 })}>拉远</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1288,11 +1346,85 @@ function StoryLink({ active = false, element }) {
   );
 }
 
+function formatStoryViewBox({ x, y, width, height }) {
+  return `${x} ${y} ${width} ${height}`;
+}
+
+function readStoryArtwork(svg) {
+  const { x, y, width, height } = svg.viewBox.baseVal;
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    throw new Error("Invalid exported SVG viewBox");
+  }
+  return {
+    markup: svg.innerHTML,
+    viewBox: `${x} ${y} ${width} ${height}`,
+    width,
+    height,
+  };
+}
+
+function StoryScene({ activeStep, artwork, frame, linkedElements, targetViewBox }) {
+  const svgRef = useRef(null);
+  const currentViewBox = useRef(frame);
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return undefined;
+    const setViewBox = (value) => {
+      svg.setAttribute("viewBox", formatStoryViewBox(value));
+      currentViewBox.current = value;
+    };
+    const from = currentViewBox.current;
+    const unchanged = ["x", "y", "width", "height"]
+      .every((key) => from[key] === targetViewBox[key]);
+    if (unchanged || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setViewBox(targetViewBox);
+      return undefined;
+    }
+    let animationFrame;
+    let startedAt;
+    const animate = (time) => {
+      startedAt ??= time;
+      const progress = (time - startedAt) / STORY_CAMERA_DURATION;
+      setViewBox(interpolateStoryViewBox(from, targetViewBox, progress));
+      if (progress < 1) animationFrame = requestAnimationFrame(animate);
+    };
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [targetViewBox]);
+
+  return (
+    <svg
+      ref={svgRef}
+      className="story-scene"
+      style={{ "--story-ratio": frame.width / frame.height }}
+      viewBox={formatStoryViewBox(frame)}
+      aria-label="讲解画面"
+    >
+      <svg
+        className="story-art"
+        x={frame.x}
+        y={frame.y}
+        width={frame.width}
+        height={frame.height}
+        viewBox={artwork.viewBox}
+        aria-hidden="true"
+        dangerouslySetInnerHTML={{ __html: artwork.markup }}
+      />
+      {linkedElements.map((element) => (
+        <StoryLink
+          key={element.id}
+          active={activeStep?.storyElementIds?.includes(element.id) ?? element.id === activeStep?.id}
+          element={element}
+        />
+      ))}
+    </svg>
+  );
+}
+
 function StoryView({ scene, onExit }) {
-  const [svgMarkup, setSvgMarkup] = useState("");
+  const [artwork, setArtwork] = useState(null);
   const [stepIndex, setStepIndex] = useState(0);
-  const storySvgRef = useRef(null);
-  const viewBoxRef = useRef(null);
   const visibleElements = useMemo(
     () => scene?.elements?.filter((element) => !element.isDeleted) ?? [],
     [scene],
@@ -1302,24 +1434,19 @@ function StoryView({ scene, onExit }) {
     [visibleElements],
   );
   const storyPadding = useMemo(
-    () => Math.max(
-      STORY_PADDING,
-      ...linkedElements
-        .filter((element) => getStoryIconKind(element) !== "none")
-        .map((element) => storyLinkGeometry(element).size * 1.5),
-    ),
-    [linkedElements],
-  );
-  const bounds = useMemo(
-    () => (visibleElements.length ? getCommonBounds(visibleElements) : [0, 0, 1, 1]),
+    () => storyPaddingForElements(visibleElements),
     [visibleElements],
   );
-  const frame = useMemo(() => ({
-    x: bounds[0] - storyPadding,
-    y: bounds[1] - storyPadding,
-    width: Math.max(1, bounds[2] - bounds[0] + storyPadding * 2),
-    height: Math.max(1, bounds[3] - bounds[1] + storyPadding * 2),
-  }), [bounds, storyPadding]);
+  const baseFrame = useMemo(
+    () => storyFrameForElements(visibleElements),
+    [visibleElements],
+  );
+  const frame = useMemo(
+    () => artwork
+      ? { ...baseFrame, width: artwork.width, height: artwork.height }
+      : baseFrame,
+    [artwork, baseFrame],
+  );
   const steps = useMemo(
     () => getStorySteps(visibleElements, scene?.storyPath),
     [scene?.storyPath, visibleElements],
@@ -1332,7 +1459,7 @@ function StoryView({ scene, onExit }) {
     () => getStoryViewBox(
       frame,
       focusBounds,
-      activeStep?.storyCamera ? 4 : 2.2,
+      activeStep?.storyCamera ? Number.POSITIVE_INFINITY : 2.2,
       activeStep?.storyCamera ? 0 : 96,
     ),
     [activeStep?.storyCamera, focusBounds, frame],
@@ -1365,8 +1492,7 @@ function StoryView({ scene, onExit }) {
   useEffect(() => {
     if (!scene || !visibleElements.length) return undefined;
     let disposed = false;
-    setSvgMarkup("");
-    viewBoxRef.current = null;
+    setArtwork(null);
     exportToSvg({
       elements: visibleElements,
       appState: { ...scene.appState, exportBackground: false },
@@ -1374,47 +1500,17 @@ function StoryView({ scene, onExit }) {
       exportPadding: storyPadding,
     })
       .then((svg) => {
-        if (!disposed) setSvgMarkup(svg.innerHTML);
+        if (!disposed) setArtwork(readStoryArtwork(svg));
       })
       .catch(() => {
-        if (!disposed) setSvgMarkup("");
+        if (!disposed) setArtwork(null);
       });
     return () => {
       disposed = true;
     };
   }, [scene, storyPadding, visibleElements]);
 
-  useEffect(() => {
-    const svg = storySvgRef.current;
-    if (!svg || !svgMarkup) return undefined;
-    const setViewBox = (value) => {
-      svg.setAttribute("viewBox", `${value.x} ${value.y} ${value.width} ${value.height}`);
-      viewBoxRef.current = value;
-    };
-    const from = viewBoxRef.current;
-    if (!from || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setViewBox(targetViewBox);
-      return undefined;
-    }
-    let animationFrame;
-    let startedAt;
-    const animate = (time) => {
-      startedAt ??= time;
-      const progress = Math.min(1, (time - startedAt) / 360);
-      const eased = 1 - (1 - progress) ** 4;
-      setViewBox({
-        x: from.x + (targetViewBox.x - from.x) * eased,
-        y: from.y + (targetViewBox.y - from.y) * eased,
-        width: from.width + (targetViewBox.width - from.width) * eased,
-        height: from.height + (targetViewBox.height - from.height) * eased,
-      });
-      if (progress < 1) animationFrame = requestAnimationFrame(animate);
-    };
-    animationFrame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animationFrame);
-  }, [svgMarkup, targetViewBox]);
-
-  if (!scene || !visibleElements.length || !svgMarkup) {
+  if (!scene || !visibleElements.length || !artwork) {
     return <p className="story-loading" role="status">正在整理画面…</p>;
   }
 
@@ -1426,22 +1522,13 @@ function StoryView({ scene, onExit }) {
   return (
     <section className="story-view" aria-label="作品讲解">
       {storyText && <p className="story-transcript">{storyText}</p>}
-      <svg
-        ref={storySvgRef}
-        className="story-scene"
-        style={{ "--story-ratio": frame.width / frame.height }}
-        viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
-        aria-label="讲解画面"
-      >
-        <g className="story-art" dangerouslySetInnerHTML={{ __html: svgMarkup }} />
-        {linkedElements.map((element) => (
-          <StoryLink
-            key={element.id}
-            active={activeStep?.storyElementIds?.includes(element.id) ?? element.id === activeStep?.id}
-            element={element}
-          />
-        ))}
-      </svg>
+      <StoryScene
+        activeStep={activeStep}
+        artwork={artwork}
+        frame={frame}
+        linkedElements={linkedElements}
+        targetViewBox={targetViewBox}
+      />
       <nav className="story-steps" aria-label="讲解步骤">
         <button
           type="button"
@@ -1949,18 +2036,54 @@ function App() {
 
   const captureStoryCamera = useCallback((stepId) => {
     const appState = excalidrawAPI?.getAppState() ?? editorView.appState;
-    const zoom = appState.zoom?.value ?? 1;
-    const offsetLeft = appState.offsetLeft ?? 0;
-    const offsetTop = appState.offsetTop ?? 0;
+    const topLeft = viewportCoordsToSceneCoords({
+      clientX: appState.offsetLeft ?? 0,
+      clientY: appState.offsetTop ?? 0,
+    }, appState);
+    const bottomRight = viewportCoordsToSceneCoords({
+      clientX: appState.width ?? window.innerWidth,
+      clientY: appState.height ?? window.innerHeight,
+    }, appState);
     updateStoryStep(stepId, {
       camera: {
-        x: -(appState.scrollX ?? 0),
-        y: -(appState.scrollY ?? 0),
-        width: Math.max(1, ((appState.width ?? window.innerWidth) - offsetLeft) / zoom),
-        height: Math.max(1, ((appState.height ?? window.innerHeight) - offsetTop) / zoom),
+        x: topLeft.x,
+        y: topLeft.y,
+        width: Math.max(1, bottomRight.x - topLeft.x),
+        height: Math.max(1, bottomRight.y - topLeft.y),
       },
     });
   }, [editorView.appState, excalidrawAPI, updateStoryStep]);
+
+  const setStoryCameraPreset = useCallback((stepId, preset) => {
+    const elements = latestScene.current.elements;
+    const frame = storyFrameForElements(elements);
+    if (preset === "overview") {
+      updateStoryStep(stepId, { camera: frame });
+      return;
+    }
+    const step = getStorySteps(elements, latestScene.current.storyPath)
+      .find((entry) => entry.id === stepId);
+    if (!step) return;
+    updateStoryStep(stepId, {
+      camera: getStoryViewBox(
+        frame,
+        { x: step.x, y: step.y, width: step.width, height: step.height },
+        3.2,
+        64,
+      ),
+    });
+  }, [updateStoryStep]);
+
+  const adjustStoryCamera = useCallback((stepId, adjustment) => {
+    const step = getStorySteps(
+      latestScene.current.elements,
+      latestScene.current.storyPath,
+    ).find((entry) => entry.id === stepId);
+    if (!step?.storyCamera) return;
+    updateStoryStep(stepId, {
+      camera: transformStoryCamera(step.storyCamera, adjustment),
+    });
+  }, [updateStoryStep]);
 
   const generateAgentPlan = useCallback(async (goal, draftPlan, conversation, signal) => {
     const sourceRevision = hermesSceneRevision(latestScene.current);
@@ -2211,10 +2334,12 @@ function App() {
           steps={editorStorySteps}
           selectedCount={selectedStoryElementIds.length}
           onAdd={addStoryStep}
+          onAdjustCamera={adjustStoryCamera}
           onCaptureCamera={captureStoryCamera}
           onClose={closePathEditor}
           onMove={moveStoryStep}
           onRemove={removeStoryStep}
+          onSetCameraPreset={setStoryCameraPreset}
           onUpdate={updateStoryStep}
         />
       )}

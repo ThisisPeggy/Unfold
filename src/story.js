@@ -351,6 +351,15 @@ export function getStorySteps(elements, storyPath) {
     .map(({ element }) => element);
 }
 
+export function getStoryFrame(bounds, padding) {
+  return {
+    x: bounds[0] - padding,
+    y: bounds[1] - padding,
+    width: Math.max(1, bounds[2] - bounds[0] + padding * 2),
+    height: Math.max(1, bounds[3] - bounds[1] + padding * 2),
+  };
+}
+
 export function getStoryViewBox(frame, focus, maxScale = 1, padding = 0) {
   if (!focus) return frame;
   const scale = Math.max(1, Math.min(
@@ -363,6 +372,28 @@ export function getStoryViewBox(frame, focus, maxScale = 1, padding = 0) {
   return {
     x: focus.x + focus.width / 2 - width / 2,
     y: focus.y + focus.height / 2 - height / 2,
+    width,
+    height,
+  };
+}
+
+export function interpolateStoryViewBox(from, to, progress) {
+  const clamped = Math.max(0, Math.min(1, progress));
+  const amount = 1 - (1 - clamped) ** 4;
+  return {
+    x: from.x + (to.x - from.x) * amount,
+    y: from.y + (to.y - from.y) * amount,
+    width: from.width + (to.width - from.width) * amount,
+    height: from.height + (to.height - from.height) * amount,
+  };
+}
+
+export function transformStoryCamera(camera, { panX = 0, panY = 0, zoom = 1 }) {
+  const width = Math.max(1, camera.width * zoom);
+  const height = Math.max(1, camera.height * zoom);
+  return {
+    x: camera.x + camera.width * panX + (camera.width - width) / 2,
+    y: camera.y + camera.height * panY + (camera.height - height) / 2,
     width,
     height,
   };
