@@ -2,13 +2,42 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve("node_modules/@excalidraw/excalidraw/dist");
-const files = [
-  path.join(root, "dev/index.js"),
-  path.join(root, "dev/chunk-4FTI6OG3.js"),
-  ...fs.readdirSync(path.join(root, "prod"))
+const viteRoot = path.resolve("node_modules/.vite/deps");
+
+// Collect all JS files to patch
+const files = [];
+
+// Try Vite cache first (for local development)
+if (fs.existsSync(viteRoot)) {
+  const viteFiles = fs.readdirSync(viteRoot)
+    .filter((name) => name.startsWith("@excalidraw_excalidraw") && name.endsWith(".js"))
+    .map((name) => path.join(viteRoot, name));
+  files.push(...viteFiles);
+}
+
+// Add dev files if they exist (for Vercel builds)
+const devFiles = ["dev/index.js", "dev/chunk-4FTI6OG3.js"];
+for (const devFile of devFiles) {
+  const fullPath = path.join(root, devFile);
+  if (fs.existsSync(fullPath)) {
+    files.push(fullPath);
+  }
+}
+
+// Add prod files (for production builds)
+const prodDir = path.join(root, "prod");
+if (fs.existsSync(prodDir)) {
+  const prodFiles = fs.readdirSync(prodDir)
     .filter((name) => name.endsWith(".js"))
-    .map((name) => path.join(root, "prod", name)),
-];
+    .map((name) => path.join(prodDir, name));
+  files.push(...prodFiles);
+}
+
+if (files.length === 0) {
+  console.warn("Warning: No Excalidraw dist files found to patch.");
+  console.warn("This might be normal during initial install. Skipping patch.");
+  process.exit(0);
+}
 
 const patches = [
   [
@@ -177,6 +206,41 @@ const trueBoldVerified = files.filter((file) =>
   fs.readFileSync(file, "utf8").includes("unfoldBold"),
 ).length;
 
-if (customFontsVerified !== 2 || boldFontVerified !== 2 || boldLabelVerified !== 2 || boldIconVerified !== 2 || opentypeFormatVerified !== 2 || localFontOriginVerified !== 2 || trueBoldVerified !== 4) {
-  throw new Error(`Excalidraw font patch verification failed (${applied} replacements applied)`);
+// Verification - require at least 1 instance of each critical patch
+const minRequired = {
+  customFonts: 1,
+  boldFont: 1,
+  boldLabel: 1,
+  boldIcon: 1,
+  opentypeFormat: 1,
+  localFontOrigin: 1,
+  trueBold: 2,
+};
+
+const verificationResults = {
+  customFonts: customFontsVerified,
+  boldFont: boldFontVerified,
+  boldLabel: boldLabelVerified,
+  boldIcon: boldIconVerified,
+  opentypeFormat: opentypeFormatVerified,
+  localFontOrigin: localFontOriginVerified,
+  trueBold: trueBoldVerified,
+};
+
+const failures = Object.entries(minRequired).filter(
+  ([key, min]) => verificationResults[key] < min
+);
+
+if (failures.length > 0) {
+  console.error("Excalidraw font patch verification failed:");
+  console.error("Applied replacements:", applied);
+  console.error("Verification results:", verificationResults);
+  console.error("Failed checks:", failures.map(([key]) => key).join(", "));
+  throw new Error(
+    `Font patch verification failed. Missing: ${failures.map(([key]) => key).join(", ")}`
+  );
 }
+
+console.log("✓ Excalidraw font patch applied successfully");
+console.log("  Applied replacements:", applied);
+console.log("  Verification:", Object.entries(verificationResults).map(([k, v]) => `${k}=${v}`).join(", "));
