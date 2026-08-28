@@ -119,6 +119,11 @@ function AssistantMessageText({ text }) {
   );
 }
 
+function extractAsciiArt(text) {
+  const match = String(text || "").match(/```(?:ascii(?:-art)?|text)?\s*\n?([\s\S]*?)```/i);
+  return match?.[1]?.replace(/\s+$/, "") || "";
+}
+
 const ASSISTANT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"]);
 const MAX_ASSISTANT_IMAGE_BYTES = 10 * 1024 * 1024;
 const BUILTIN_AGENT_COMMANDS = [
@@ -548,6 +553,7 @@ function HermesAssistantPanel({
   onConnectionChange,
   onGeneratePlan,
   onInsertImage,
+  onInsertText,
   onInstallSkill,
   onListSkills,
   onRunAgent,
@@ -843,6 +849,9 @@ function HermesAssistantPanel({
           role: "assistant",
           text: result.message || (result.images.length ? "图片已生成。" : "Hermes 已完成。"),
           images: result.images,
+          ...(displayPrompt.startsWith("/ascii-art")
+            ? { asciiArt: extractAsciiArt(result.message) }
+            : {}),
         }]);
         clearAttachments();
         return;
@@ -1012,6 +1021,11 @@ function HermesAssistantPanel({
                       </figure>
                     ))}
                   </div>
+                )}
+                {message.asciiArt && (
+                  <button type="button" className="assistant-insert-text" onClick={() => onInsertText(message.asciiArt)}>
+                    放到画布
+                  </button>
                 )}
                 {message.plan && (
                   <section className="assistant-plan">
@@ -2652,6 +2666,29 @@ function App() {
     }
   }, [excalidrawAPI]);
 
+  const insertAgentText = useCallback((text) => {
+    const appState = excalidrawAPI?.getAppState() ?? latestScene.current.appState;
+    const center = viewportCoordsToSceneCoords({
+      clientX: (appState.offsetLeft ?? 0) + (appState.width ?? window.innerWidth) / 2,
+      clientY: (appState.offsetTop ?? 0) + (appState.height ?? window.innerHeight) / 2,
+    }, appState);
+    const [element] = convertToExcalidrawElements([{
+      type: "text",
+      x: center.x - 220,
+      y: center.y - 100,
+      text: String(text || ""),
+      fontFamily: FONT_FAMILY.Helvetica,
+      fontSize: 20,
+      strokeColor: "#4a4843",
+    }]);
+    const elements = [...latestScene.current.elements, element];
+    const nextScene = { ...latestScene.current, elements };
+    latestScene.current = nextScene;
+    setScene(nextScene);
+    excalidrawAPI?.updateScene({ elements, appState: { selectedElementIds: { [element.id]: true } } });
+    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+  }, [excalidrawAPI]);
+
   const generateAgentPlan = useCallback(async (goal, draftPlan, conversation, signal) => {
     const sourceRevision = hermesSceneRevision(latestScene.current);
     const scopeElementIds = selectedStoryElementIds;
@@ -2928,6 +2965,7 @@ function App() {
           onConnectionChange={setHermesConnected}
           onGeneratePlan={generateAgentPlan}
           onInsertImage={insertAgentImage}
+          onInsertText={insertAgentText}
           onInstallSkill={installAgentSkill}
           onListSkills={listAgentSkills}
           onRunAgent={runAgent}

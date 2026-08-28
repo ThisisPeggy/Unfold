@@ -574,6 +574,24 @@ body,
   flex: 1;
   padding: 20px 16px;
   overflow-y: auto;
+  scrollbar-color: var(--tale-line) transparent;
+  scrollbar-width: thin;
+}
+
+.assistant-conversation::-webkit-scrollbar,
+.assistant-slash-options::-webkit-scrollbar {
+  width: 6px;
+}
+
+.assistant-conversation::-webkit-scrollbar-track,
+.assistant-slash-options::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assistant-conversation::-webkit-scrollbar-thumb,
+.assistant-slash-options::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--tale-line);
 }
 
 .assistant-conversation:has(> .assistant-empty-state) {
@@ -722,6 +740,16 @@ body,
   color: var(--tale-ink);
   background: var(--tale-surface-hover);
   font: 600 11px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.assistant-insert-text {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--tale-line);
+  border-radius: 8px;
+  background: var(--tale-surface);
+  color: var(--tale-ink);
   cursor: pointer;
 }
 
@@ -957,6 +985,8 @@ body,
   margin: 0;
   padding: 5px;
   overflow-y: auto;
+  scrollbar-color: var(--tale-line) transparent;
+  scrollbar-width: thin;
   border: 1px solid var(--tale-line);
   border-radius: 10px;
   background: var(--tale-surface);
