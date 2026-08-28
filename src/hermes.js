@@ -1,8 +1,30 @@
 export const HERMES_CONNECTION_KEY = "inkpath.hermes.connection.v1";
 
 const DEFAULT_PORT = 8765;
-const CONNECTOR_COMMIT = "afb00ffbda5df29c5ad24bbfe11e4d02aa854c9c";
+const CONNECTOR_COMMIT = "bb2848e9d57f1b8c9a3414e98fb6b88670ed2f29";
 const CONNECTOR_BASE_URL = `https://raw.githubusercontent.com/ThisisPeggy/Unfold-Hermes-Connector/${CONNECTOR_COMMIT}`;
+
+export const RECOMMENDED_HERMES_SKILLS = Object.freeze([
+  {
+    command: "/travel-memory-sticker-card",
+    name: "旅行记忆贴纸卡",
+    description: "推荐安装 · 把旅行照片做成收藏贴纸卡（个人非商用）",
+    installUrl: "https://github.com/carolinaaafy/travel-memory-sticker-card",
+    recommended: true,
+  },
+  {
+    command: "/photo-abstract-editorial",
+    name: "照片抽象编辑海报",
+    description: "推荐安装 · 保留原照片并生成抽象编辑版式（AGPL-3.0）",
+    installUrl: "https://github.com/kwhi6693-web/photo-abstract-editorial",
+    recommended: true,
+  },
+]);
+
+export function recommendedHermesSkills(installedSkills = []) {
+  const installed = new Set(installedSkills.map((skill) => skill.command));
+  return RECOMMENDED_HERMES_SKILLS.filter((skill) => !installed.has(skill.command));
+}
 
 function connectorProtocol(token) {
   const value = String(token || "").trim();
@@ -170,6 +192,136 @@ export async function testHermesConnection(connection, WebSocketImpl = globalThi
     await client.connect(makeHermesConnection(connection.token, connection.port));
     return true;
   } finally {
+    client.close();
+  }
+}
+
+async function connectorRequest(connection, method, params = {}, WebSocketImpl = globalThis.WebSocket) {
+  const client = createGatewayClient(WebSocketImpl);
+  try {
+    await client.connect(makeHermesConnection(connection.token, connection.port));
+    return await client.request(method, params);
+  } finally {
+    client.close();
+  }
+}
+
+export async function listHermesSkills(
+  connection = readHermesConnection(),
+  WebSocketImpl = globalThis.WebSocket,
+) {
+  if (!connection) throw new Error("请先连接本机 Hermes。");
+  const result = await connectorRequest(connection, "skills.list", {}, WebSocketImpl);
+  return {
+    skills: Array.isArray(result?.skills) ? result.skills : [],
+    imageGeneration: result?.image_generation === true,
+  };
+}
+
+export async function installHermesSkill(
+  url,
+  confirm = false,
+  connection = readHermesConnection(),
+  WebSocketImpl = globalThis.WebSocket,
+) {
+  if (!connection) throw new Error("请先连接本机 Hermes。");
+  return connectorRequest(connection, "skills.install", {
+    url: String(url || "").trim(),
+    confirm: confirm === true,
+  }, WebSocketImpl);
+}
+
+function imageDataUrl(file) {
+  if (typeof file?.dataUrl === "string") return Promise.resolve(file.dataUrl);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`无法读取图片：${file?.name || "未知文件"}`));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function requestHermesAgent(prompt, files = [], options = {}) {
+  const connection = options.connection ?? readHermesConnection();
+  const WebSocketImpl = options.WebSocketImpl ?? globalThis.WebSocket;
+  if (!connection) throw new Error("请先连接本机 Hermes。");
+  const client = createGatewayClient(WebSocketImpl);
+  const abort = () => client.close();
+  options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    if (options.signal?.aborted) throw new DOMException("已停止生成。", "AbortError");
+    await client.connect(makeHermesConnection(connection.token, connection.port));
+    const requestedSessionId = String(options.sessionId || "").trim();
+    const session = await client.request("session.create", {
+      ...(requestedSessionId ? { session_id: requestedSessionId } : {}),
+      title: "Unfold · Agent",
+    });
+    const sessionId = String(session?.session_id || requestedSessionId);
+    if (!sessionId) throw new Error("Hermes 未能创建 Agent 会话。");
+    for (const file of files) {
+      await client.request("image.attach_bytes", {
+        session_id: sessionId,
+        name: String(file?.name || "image"),
+        data_url: await imageDataUrl(file),
+      });
+    }
+    const answer = new Promise((resolve, reject) => {
+      let text = "";
+      const images = [];
+      let settled = false;
+      let timer;
+      let offDelta;
+      let offComplete;
+      let offImage;
+      let offError;
+      let offClose;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        offDelta?.();
+        offComplete?.();
+        offImage?.();
+        offError?.();
+        offClose?.();
+        callback(callback === reject && !(value instanceof Error) ? new Error(value) : value);
+      };
+      const matches = (event) => event.sessionId === sessionId;
+      offDelta = client.on("message.delta", (event) => {
+        if (matches(event)) text += String(event.payload?.text || "");
+      });
+      offImage = client.on("artifact.image", (event) => {
+        if (!matches(event)) return;
+        const src = String(event.payload?.data_url || event.payload?.url || "");
+        if (!/^data:image\/(?:png|jpeg|gif|webp|bmp);base64,/i.test(src) && !/^https?:\/\//i.test(src)) return;
+        images.push({
+          id: String(event.payload?.id || crypto.randomUUID()),
+          src,
+          name: String(event.payload?.name || "Hermes image"),
+          mimeType: String(event.payload?.mime_type || "image/png"),
+          caption: String(event.payload?.caption || ""),
+        });
+      });
+      offComplete = client.on("message.complete", (event) => {
+        if (matches(event)) finish(resolve, {
+          sessionId,
+          message: String(event.payload?.text || text).trim(),
+          images,
+        });
+      });
+      offError = client.on("error", (event) => {
+        if (matches(event)) finish(reject, String(event.payload?.message || "Hermes Agent 执行失败。"));
+      });
+      offClose = client.on("close", () => finish(reject, "Hermes Connector 已断开。"));
+      timer = setTimeout(() => finish(reject, "Hermes Agent 响应超时，请重试。"), 10 * 60_000);
+    });
+    await client.request("prompt.submit", { session_id: sessionId, text: String(prompt || "").trim() });
+    return await answer;
+  } catch (error) {
+    if (options.signal?.aborted) throw new DOMException("已停止生成。", "AbortError");
+    throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
     client.close();
   }
 }

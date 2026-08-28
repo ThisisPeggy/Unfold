@@ -344,6 +344,8 @@ body,
 .assistant-plan button:focus-visible,
 .assistant-retry:focus-visible,
 .assistant-scope button:focus-visible,
+.assistant-slash-options button:focus-visible,
+.assistant-generated-images button:focus-visible,
 .assistant-composer button:focus-visible {
   outline: 2px solid var(--tale-accent);
   outline-offset: 2px;
@@ -665,6 +667,64 @@ body,
   text-underline-offset: 2px;
 }
 
+.assistant-message-attachments {
+  margin: 7px 0 0;
+  padding-left: 18px;
+  color: var(--tale-muted);
+  font-size: 11px;
+}
+
+.assistant-generated-images {
+  display: grid;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.assistant-generated-images figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--tale-line);
+  border-radius: 10px;
+  background: var(--tale-surface);
+}
+
+.assistant-generated-images img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  background: var(--tale-surface-subtle);
+}
+
+.assistant-generated-images figcaption {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px 6px 10px;
+  color: var(--tale-muted);
+  font-size: 11px;
+}
+
+.assistant-generated-images figcaption span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-generated-images figcaption button {
+  min-height: 32px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tale-ink);
+  background: var(--tale-surface-hover);
+  font: 600 11px/1 var(--tale-font);
+  cursor: pointer;
+}
+
 .assistant-retry {
   margin-top: 6px;
 }
@@ -838,10 +898,62 @@ body,
   font-size: 11px;
 }
 
+.assistant-composer-shell {
+  position: relative;
+}
+
+.assistant-slash-options {
+  position: absolute;
+  z-index: 2;
+  right: 16px;
+  bottom: calc(100% + 6px);
+  left: 16px;
+  max-height: 280px;
+  margin: 0;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--tale-line);
+  border-radius: 10px;
+  background: var(--tale-surface);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
+  list-style: none;
+}
+
+.assistant-slash-options button {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  align-content: center;
+  gap: 3px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tale-ink);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-slash-options button:hover,
+.assistant-slash-options button[data-active="true"] {
+  background: var(--tale-surface-hover);
+}
+
+.assistant-slash-options span {
+  font: 600 12px/1.2 var(--tale-font);
+}
+
+.assistant-slash-options small {
+  overflow: hidden;
+  color: var(--tale-muted);
+  font: 11px/1.3 var(--tale-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assistant-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
-  grid-template-rows: auto 40px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   gap: 4px 8px;
   margin: 0 16px 16px;
   padding: 8px;
@@ -873,22 +985,81 @@ body,
   color: #a7a6a3;
 }
 
+.assistant-attachment-list,
+.assistant-attachment-error {
+  grid-column: 1 / -1;
+}
+
+.assistant-attachment-list {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.assistant-attachment-list li {
+  position: relative;
+  width: 58px;
+  flex: 0 0 58px;
+}
+
+.assistant-attachment-list img {
+  display: block;
+  width: 58px;
+  height: 58px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.assistant-attachment-list span {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--tale-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-attachment-list button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(36 35 31 / 82%);
+  font: 16px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.assistant-attachment-error {
+  color: var(--tale-danger);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .assistant-input-meta {
   align-self: center;
-  grid-column: 1;
-  grid-row: 2;
+  grid-column: 2;
   padding-left: 4px;
   color: #a7a6a3;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
-.assistant-composer button {
+.assistant-composer .assistant-send-button {
   display: grid;
   width: 40px;
   height: 40px;
-  grid-column: 2;
-  grid-row: 2;
+  grid-column: 3;
   justify-self: end;
   padding: 0;
   place-items: center;
@@ -900,11 +1071,35 @@ body,
   transition: background-color 120ms ease-out, transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.assistant-composer button:hover:not(:disabled) {
+.assistant-composer .assistant-send-button:hover:not(:disabled) {
   background: #24231f;
 }
 
-.assistant-composer button:disabled {
+.assistant-composer .assistant-send-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.assistant-composer .assistant-attach-button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  grid-column: 1;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tale-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.assistant-composer .assistant-attach-button:hover:not(:disabled) {
+  color: var(--tale-ink);
+  background: var(--tale-surface-hover);
+}
+
+.assistant-composer .assistant-attach-button:disabled {
   cursor: default;
   opacity: 0.35;
 }

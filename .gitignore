@@ -5,3 +5,4 @@ artifacts/
 .vercel
 .env*.local
 .env*
+.connector-src/

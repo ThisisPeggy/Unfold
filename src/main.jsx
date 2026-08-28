@@ -32,7 +32,11 @@ import {
   clearHermesConnection,
   createHermesConnection,
   hermesConnectorSetupCommand,
+  installHermesSkill,
+  listHermesSkills,
   readHermesConnection,
+  recommendedHermesSkills,
+  requestHermesAgent,
   requestHermesLecturePlan,
   saveHermesConnection,
   testHermesConnection,
@@ -112,6 +116,43 @@ function AssistantMessageText({ text }) {
       })}
     </p>
   );
+}
+
+const ASSISTANT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"]);
+const MAX_ASSISTANT_IMAGE_BYTES = 10 * 1024 * 1024;
+const BUILTIN_AGENT_COMMANDS = [
+  { command: "/image", name: "生成图片", description: "使用 Hermes 原生图片工具，不需要 skill", builtin: true },
+  { command: "/install-skill", name: "安装 GitHub skill", description: "粘贴包含 SKILL.md 的 GitHub 仓库地址", builtin: true },
+];
+
+function AttachmentIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="m8.5 12.5 6.8-6.8a3 3 0 0 1 4.2 4.2l-8.8 8.8a5 5 0 0 1-7.1-7.1l8.5-8.5" />
+    </svg>
+  );
+}
+
+function loadImageSize(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("无法打开 Hermes 生成的图片。"));
+    image.src = src;
+  });
+}
+
+async function imageSourceDataUrl(src) {
+  if (src.startsWith("data:image/")) return src;
+  const response = await fetch(src);
+  if (!response.ok) throw new Error("无法下载 Hermes 生成的图片。");
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("无法读取 Hermes 生成的图片。"));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(blob);
+  });
 }
 const STORY_ICON_LABELS = {
   camera: "照片",
@@ -504,6 +545,10 @@ function HermesAssistantPanel({
   onClose,
   onConnectionChange,
   onGeneratePlan,
+  onInsertImage,
+  onInstallSkill,
+  onListSkills,
+  onRunAgent,
   onUndoPlan,
   open,
   selectionCount,
@@ -518,14 +563,31 @@ function HermesAssistantPanel({
   const [copied, setCopied] = useState("");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentError, setAttachmentError] = useState("");
+  const [skills, setSkills] = useState([]);
+  const [imageGeneration, setImageGeneration] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 640px)").matches);
   const composerRef = useRef(null);
+  const fileInputRef = useRef(null);
   const conversationRef = useRef(null);
   const firstActionRef = useRef(null);
   const generationRef = useRef(null);
+  const agentSessionRef = useRef(crypto.randomUUID());
   const panelRef = useRef(null);
   const command = useMemo(() => hermesConnectorSetupCommand(), []);
+  const slashSuggestions = useMemo(() => {
+    if (slashDismissed) return [];
+    const match = input.match(/^\/([^\s]*)$/);
+    if (!match) return [];
+    const query = match[1].toLowerCase();
+    return [...BUILTIN_AGENT_COMMANDS, ...recommendedHermesSkills(skills), ...skills]
+      .filter((item) => item.command.slice(1).toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [input, skills, slashDismissed]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -554,6 +616,22 @@ function HermesAssistantPanel({
       window.clearTimeout(timer);
     };
   }, [checkVersion, connection, onConnectionChange, open]);
+
+  useEffect(() => {
+    if (!open || connectionState !== "connected") return undefined;
+    let active = true;
+    onListSkills().then((result) => {
+      if (!active) return;
+      setSkills(result.skills);
+      setImageGeneration(result.imageGeneration);
+    }).catch(() => {
+      if (active) {
+        setSkills([]);
+        setImageGeneration(false);
+      }
+    });
+    return () => { active = false; };
+  }, [connectionState, onListSkills, open]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 640px)");
@@ -604,6 +682,10 @@ function HermesAssistantPanel({
     conversationRef.current?.scrollTo({ top: conversationRef.current.scrollHeight });
   }, [busy, messages]);
 
+  useEffect(() => {
+    setSlashIndex((index) => Math.min(index, Math.max(0, slashSuggestions.length - 1)));
+  }, [slashSuggestions.length]);
+
   const copyValue = async (kind, value) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -623,21 +705,131 @@ function HermesAssistantPanel({
     onConnectionChange(false);
   };
 
+  const clearAttachments = () => {
+    attachments.forEach((item) => URL.revokeObjectURL(item.preview));
+    setAttachments([]);
+    setAttachmentError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const addAttachments = (files) => {
+    const incoming = [...files];
+    const invalid = incoming.find((file) =>
+      !ASSISTANT_IMAGE_TYPES.has(file.type) || !file.size || file.size > MAX_ASSISTANT_IMAGE_BYTES,
+    );
+    if (invalid) {
+      setAttachmentError("仅支持 PNG、JPEG、WebP、GIF、BMP，单张不超过 10 MB。");
+      return;
+    }
+    if (attachments.length + incoming.length > 4) {
+      setAttachmentError("一次最多上传 4 张图片。");
+      return;
+    }
+    setAttachmentError("");
+    setAttachments((value) => [...value, ...incoming.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      preview: URL.createObjectURL(file),
+    }))]);
+  };
+
+  const refreshSkills = async () => {
+    const result = await onListSkills();
+    setSkills(result.skills);
+    setImageGeneration(result.imageGeneration);
+    return result;
+  };
+
+  const selectSlashSuggestion = (item) => {
+    if (item.installUrl) {
+      setSlashDismissed(true);
+      submitPrompt(`/install-skill ${item.installUrl}`, false);
+      return;
+    }
+    setInput(`${item.command} `);
+    setSlashDismissed(true);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
   const submitPrompt = async (prompt, appendUser = true) => {
-    if (!prompt || busy || connectionState !== "connected") return;
+    const pendingAttachments = attachments;
+    const displayPrompt = prompt || (pendingAttachments.length ? "请根据这些图片继续创作。" : "");
+    if (!displayPrompt || busy || connectionState !== "connected") return;
     const id = crypto.randomUUID();
     const conversation = messages
       .filter((message) => !message.error)
       .slice(-8)
       .map(({ role, text }) => ({ role, text }));
-    if (appendUser) setMessages((value) => [...value, { id, role: "user", text: prompt }]);
+    if (appendUser) setMessages((value) => [...value, {
+      id,
+      role: "user",
+      text: displayPrompt,
+      attachmentNames: pendingAttachments.map((item) => item.file.name),
+    }]);
     setInput("");
     setBusy(true);
     const controller = new AbortController();
     generationRef.current = controller;
     try {
+      if (displayPrompt.startsWith("/install-skill")) {
+        const url = displayPrompt.slice("/install-skill".length).trim();
+        if (!url) throw new Error("请在 /install-skill 后粘贴 GitHub skill 仓库地址。");
+        const preview = await onInstallSkill(url, false);
+        if (preview.blocked) throw new Error(`Hermes 安全扫描已阻止安装：${preview.summary || preview.reason}`);
+        if (preview.already_installed) {
+          await refreshSkills();
+          setInput(`/${preview.name} `);
+          setMessages((value) => [...value, {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: `${preview.name} 已经安装。继续输入你想让它完成的内容。`,
+          }]);
+          return;
+        }
+        const approved = window.confirm(
+          `安装 ${preview.name}？\n\n来源：${preview.source}\n安全扫描：${preview.verdict}，${preview.finding_count} 项提示\n\nSkill 会安装到你本机的 Hermes，并可执行其中描述的工作流。`,
+        );
+        if (!approved) {
+          setMessages((value) => [...value, {
+            id: crypto.randomUUID(), role: "assistant", text: "已取消安装。",
+          }]);
+          return;
+        }
+        const installed = await onInstallSkill(url, true);
+        if (!installed.installed) throw new Error(installed.summary || "Hermes 未能安装这个 skill。");
+        await refreshSkills();
+        setInput(`/${installed.name} `);
+        setMessages((value) => [...value, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: `${installed.name} 已安装并立即生效。继续输入你想让它完成的内容。`,
+        }]);
+        return;
+      }
+      const agentMode = displayPrompt.startsWith("/") || pendingAttachments.length > 0;
+      if (agentMode) {
+        const imageCommand = displayPrompt.match(/^\/image(?:\s+([\s\S]*))?$/);
+        const agentPrompt = imageCommand
+          ? `请使用 image_generate 工具生成图片并把成品返回给用户。${imageCommand[1]?.trim() || "请先询问用户想生成什么图片。"}`
+          : displayPrompt;
+        const result = await onRunAgent(
+          agentPrompt,
+          pendingAttachments.map((item) => item.file),
+          agentSessionRef.current,
+          controller.signal,
+        );
+        agentSessionRef.current = result.sessionId || agentSessionRef.current;
+        setMessages((value) => [...value, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: result.message || (result.images.length ? "图片已生成。" : "Hermes 已完成。"),
+          images: result.images,
+        }]);
+        clearAttachments();
+        return;
+      }
       const draftPlan = [...messages].reverse().find((message) => message.plan)?.plan;
-      const plan = await onGeneratePlan(prompt, draftPlan, conversation, controller.signal);
+      const plan = await onGeneratePlan(displayPrompt, draftPlan, conversation, controller.signal);
       setMessages((value) => [...value, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -646,7 +838,7 @@ function HermesAssistantPanel({
           : plan.mode === "create"
             ? `内容、大纲和画布已经设计好，共 ${plan.steps.length} 个讲解步骤。`
             : `我整理了 ${plan.steps.length} 个讲解步骤。`,
-        ...(plan.mode === "chat" ? {} : { plan, requestPrompt: prompt }),
+        ...(plan.mode === "chat" ? {} : { plan, requestPrompt: displayPrompt }),
       }]);
     } catch (error) {
       setMessages((value) => [...value, {
@@ -656,9 +848,9 @@ function HermesAssistantPanel({
           ? "已停止生成。"
           : error?.message || "Hermes 暂时无法完成这次请求。",
         error: error?.name !== "AbortError",
-        ...(error?.name === "AbortError" ? {} : { retryPrompt: prompt }),
+        ...(error?.name === "AbortError" ? {} : { retryPrompt: displayPrompt }),
       }]);
-      if (error?.name !== "AbortError") setInput(prompt);
+      if (error?.name !== "AbortError") setInput(displayPrompt);
     } finally {
       generationRef.current = null;
       setBusy(false);
@@ -678,6 +870,8 @@ function HermesAssistantPanel({
   const clearConversation = () => {
     setMessages([]);
     setInput("");
+    clearAttachments();
+    agentSessionRef.current = crypto.randomUUID();
     requestAnimationFrame(() => composerRef.current?.focus());
   };
   const retryMessage = [...messages].reverse().find((message) => message.retryPrompt);
@@ -773,7 +967,7 @@ function HermesAssistantPanel({
               <div className="assistant-empty-state">
                 <AssistantMascot working={busy} />
                 <h3><span>问问题，也可以整理画布。</span><span>今天想做什么？</span></h3>
-                <p>Hermes 可以聊天、写作、联网查找信息和设计讲解路径。</p>
+                <p>Hermes 可以聊天、写作、联网查找信息和设计讲解路径；输入 / 可安装推荐的图片 skill。</p>
               </div>
             ) : messages.map((message) => (
               <div
@@ -782,6 +976,24 @@ function HermesAssistantPanel({
                 role={message.error ? "alert" : undefined}
               >
                 <AssistantMessageText text={message.text} />
+                {message.attachmentNames?.length > 0 && (
+                  <ul className="assistant-message-attachments" aria-label="已上传图片">
+                    {message.attachmentNames.map((name) => <li key={name}>{name}</li>)}
+                  </ul>
+                )}
+                {message.images?.length > 0 && (
+                  <div className="assistant-generated-images">
+                    {message.images.map((image) => (
+                      <figure key={image.id}>
+                        <img src={image.src} alt={image.caption || image.name || "Hermes 生成的图片"} />
+                        <figcaption>
+                          <span>{image.caption || image.name}</span>
+                          <button type="button" onClick={() => onInsertImage(image)}>放到画布</button>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
                 {message.plan && (
                   <section className="assistant-plan">
                     {message.plan.mode === "create" && (
@@ -866,32 +1078,124 @@ function HermesAssistantPanel({
               <button type="button" onClick={onClearSelection}>清除选区</button>
             </div>
           )}
-          <form className="assistant-composer" aria-busy={busy} onSubmit={send}>
-            <textarea
-              ref={composerRef}
-              rows="1"
-              maxLength="600"
-              value={input}
-              placeholder="问问题或调整画布…"
-              aria-label="发送给 Hermes 的消息"
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  if (!busy) event.currentTarget.form?.requestSubmit();
-                }
-              }}
-            />
-            <span className="assistant-input-meta" aria-hidden="true">{input.length}/600</span>
-            <button
-              type={busy ? "button" : "submit"}
-              disabled={!busy && !input.trim()}
-              aria-label={busy ? "停止生成" : "发送消息"}
-              onClick={busy ? () => generationRef.current?.abort() : undefined}
-            >
-              {busy ? <StopIcon /> : <SendIcon />}
-            </button>
-          </form>
+          <div className="assistant-composer-shell">
+            {slashSuggestions.length > 0 && (
+              <ul id="hermes-slash-options" className="assistant-slash-options" role="listbox" aria-label="Hermes skills 和命令">
+                {slashSuggestions.map((item, index) => (
+                  <li key={item.command} role="none">
+                    <button
+                      id={`hermes-slash-option-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === slashIndex}
+                      data-active={index === slashIndex}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectSlashSuggestion(item)}
+                    >
+                      <span>{item.command}</span>
+                      <small>{item.description}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form className="assistant-composer" aria-busy={busy} onSubmit={send}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                hidden
+                multiple
+                accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+                onChange={(event) => addAttachments(event.target.files)}
+              />
+              {attachments.length > 0 && (
+                <ul className="assistant-attachment-list" aria-label="待发送图片">
+                  {attachments.map((item) => (
+                    <li key={item.id}>
+                      <img src={item.preview} alt="" />
+                      <span>{item.file.name}</span>
+                      <button
+                        type="button"
+                        aria-label={`移除 ${item.file.name}`}
+                        onClick={() => {
+                          URL.revokeObjectURL(item.preview);
+                          setAttachments((value) => value.filter((entry) => entry.id !== item.id));
+                        }}
+                      >×</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {attachmentError && <p id="assistant-attachment-error" className="assistant-attachment-error" role="alert">{attachmentError}</p>}
+              <textarea
+                ref={composerRef}
+                rows="1"
+                maxLength="600"
+                value={input}
+                placeholder="问问题；输入 / 使用 skill 或生图…"
+                aria-label="发送给 Hermes 的消息"
+                aria-autocomplete="list"
+                aria-expanded={slashSuggestions.length > 0}
+                aria-controls={slashSuggestions.length ? "hermes-slash-options" : undefined}
+                aria-activedescendant={slashSuggestions.length ? `hermes-slash-option-${slashIndex}` : undefined}
+                aria-describedby={attachmentError ? "assistant-attachment-error" : undefined}
+                aria-invalid={Boolean(attachmentError)}
+                onChange={(event) => {
+                  setInput(event.target.value);
+                  setSlashDismissed(false);
+                  setSlashIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  if (slashSuggestions.length && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+                    event.preventDefault();
+                    setSlashIndex((index) => (
+                      event.key === "ArrowDown"
+                        ? (index + 1) % slashSuggestions.length
+                        : (index - 1 + slashSuggestions.length) % slashSuggestions.length
+                    ));
+                    return;
+                  }
+                  if (slashSuggestions.length && event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setSlashDismissed(true);
+                    return;
+                  }
+                  if (slashSuggestions.length && event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    selectSlashSuggestion(slashSuggestions[slashIndex]);
+                    return;
+                  }
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    if (!busy) event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="assistant-attach-button"
+                aria-label="上传图片"
+                title="上传图片"
+                disabled={busy || attachments.length >= 4}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <AttachmentIcon />
+              </button>
+              <span className="assistant-input-meta" title={imageGeneration ? "Hermes 图片工具已配置" : "Hermes 图片工具尚未配置"}>
+                {input.length}/600
+              </span>
+              <button
+                className="assistant-send-button"
+                type={busy ? "button" : "submit"}
+                disabled={!busy && !input.trim() && !attachments.length}
+                aria-label={busy ? "停止生成" : "发送消息"}
+                onClick={busy ? () => generationRef.current?.abort() : undefined}
+              >
+                {busy ? <StopIcon /> : <SendIcon />}
+              </button>
+            </form>
+          </div>
           {retryMessage && (
             <button
               type="button"
@@ -2269,6 +2573,57 @@ function App() {
     });
   }, [updateStoryStep]);
 
+  const listAgentSkills = useCallback(() => listHermesSkills(), []);
+  const installAgentSkill = useCallback((url, confirm) => installHermesSkill(url, confirm), []);
+  const runAgent = useCallback((prompt, files, sessionId, signal) =>
+    requestHermesAgent(prompt, files, { sessionId, signal }), []);
+
+  const insertAgentImage = useCallback(async (image) => {
+    try {
+      const dataURL = await imageSourceDataUrl(image.src);
+      const size = await loadImageSize(dataURL);
+      const scale = Math.min(1, 640 / size.width, 480 / size.height);
+      const width = Math.max(40, Math.round(size.width * scale));
+      const height = Math.max(40, Math.round(size.height * scale));
+      const appState = excalidrawAPI?.getAppState() ?? latestScene.current.appState;
+      const center = viewportCoordsToSceneCoords({
+        clientX: (appState.offsetLeft ?? 0) + (appState.width ?? window.innerWidth) / 2,
+        clientY: (appState.offsetTop ?? 0) + (appState.height ?? window.innerHeight) / 2,
+      }, appState);
+      const fileId = crypto.randomUUID().replaceAll("-", "");
+      const file = {
+        id: fileId,
+        dataURL,
+        mimeType: String(dataURL.match(/^data:([^;,]+)/)?.[1] || image.mimeType || "image/png"),
+        created: Date.now(),
+      };
+      const [element] = convertToExcalidrawElements([{
+        type: "image",
+        x: center.x - width / 2,
+        y: center.y - height / 2,
+        width,
+        height,
+        fileId,
+        status: "saved",
+        scale: [1, 1],
+      }]);
+      const elements = [...latestScene.current.elements, element];
+      const files = { ...(latestScene.current.files || {}), [fileId]: file };
+      const nextScene = { ...latestScene.current, elements, files };
+      latestScene.current = nextScene;
+      setScene(nextScene);
+      excalidrawAPI?.addFiles([file]);
+      excalidrawAPI?.updateScene({
+        elements,
+        appState: { selectedElementIds: { [element.id]: true } },
+      });
+      setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+      excalidrawAPI?.setToast({ message: "图片已放到画布。", duration: 1800 });
+    } catch (error) {
+      excalidrawAPI?.setToast({ message: error?.message || "无法把图片放到画布。", duration: 3000 });
+    }
+  }, [excalidrawAPI]);
+
   const generateAgentPlan = useCallback(async (goal, draftPlan, conversation, signal) => {
     const sourceRevision = hermesSceneRevision(latestScene.current);
     const scopeElementIds = selectedStoryElementIds;
@@ -2544,6 +2899,10 @@ function App() {
           onClose={closeAssistant}
           onConnectionChange={setHermesConnected}
           onGeneratePlan={generateAgentPlan}
+          onInsertImage={insertAgentImage}
+          onInstallSkill={installAgentSkill}
+          onListSkills={listAgentSkills}
+          onRunAgent={runAgent}
           onUndoPlan={undoAgentPlan}
           open={!preview && assistantOpen}
           selectionCount={selectedStoryElementIds.length}

@@ -4,10 +4,23 @@ import {
   buildHermesLectureRequest,
   createHermesConnection,
   hermesConnectorSetupCommand,
+  installHermesSkill,
+  listHermesSkills,
   makeHermesConnection,
   normalizeHermesLecturePlan,
+  RECOMMENDED_HERMES_SKILLS,
+  recommendedHermesSkills,
+  requestHermesAgent,
   requestHermesLecturePlan,
 } from "../src/hermes.js";
+
+test("offers curated Hermes skills until each one is installed", () => {
+  assert.equal(RECOMMENDED_HERMES_SKILLS.length, 2);
+  assert.deepEqual(
+    recommendedHermesSkills([{ command: "/travel-memory-sticker-card" }]).map((skill) => skill.command),
+    ["/photo-abstract-editorial"],
+  );
+});
 
 const elements = [
   { id: "a", type: "text", text: "开始", x: 0, y: 0, width: 40, height: 20 },
@@ -181,4 +194,83 @@ test("accepts a safe freeform visual canvas without restricting its composition"
   assert.deepEqual(plan.visual.elements[2].points, [[0, 0], [100, 0]]);
   assert.equal(plan.visual.elements[2].startKey, "core");
   assert.deepEqual(plan.visual.steps[0].elementKeys, ["title", "core"]);
+});
+
+test("lists and installs skills, uploads an image, and returns generated artifacts", async () => {
+  class FakeSocket {
+    constructor() {
+      this.readyState = 1;
+      this.listeners = new Map();
+      queueMicrotask(() => this.emit("message", {
+        data: JSON.stringify({ method: "event", params: { type: "gateway.ready", payload: {} } }),
+      }));
+    }
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+      this.listeners.get(type).add(listener);
+    }
+    emit(type, event = {}) {
+      for (const listener of this.listeners.get(type) || []) listener(event);
+    }
+    reply(id, result) {
+      this.emit("message", { data: JSON.stringify({ id, result }) });
+    }
+    event(type, sessionId, payload) {
+      this.emit("message", { data: JSON.stringify({
+        method: "event",
+        params: { type, session_id: sessionId, payload },
+      }) });
+    }
+    send(raw) {
+      const frame = JSON.parse(raw);
+      if (frame.method === "skills.list") {
+        this.reply(frame.id, {
+          skills: [{ command: "/memory-card", name: "memory-card", description: "Make a card" }],
+          image_generation: true,
+        });
+      } else if (frame.method === "skills.install") {
+        this.reply(frame.id, { installed: frame.params.confirm, name: "memory-card" });
+      } else if (frame.method === "session.create") {
+        this.reply(frame.id, { session_id: frame.params.session_id || "agent-session" });
+      } else if (frame.method === "image.attach_bytes") {
+        assert.match(frame.params.data_url, /^data:image\/png;base64,/);
+        this.reply(frame.id, { attached: true });
+      } else if (frame.method === "prompt.submit") {
+        this.reply(frame.id, { status: "streaming" });
+        this.event("artifact.image", frame.params.session_id, {
+          id: "image-one",
+          name: "result.png",
+          mime_type: "image/png",
+          data_url: "data:image/png;base64,aGVsbG8=",
+        });
+        this.event("message.complete", frame.params.session_id, { text: "完成。" });
+      }
+    }
+    close() {
+      this.readyState = 3;
+    }
+  }
+
+  const connection = makeHermesConnection("b".repeat(64));
+  const listed = await listHermesSkills(connection, FakeSocket);
+  assert.equal(listed.imageGeneration, true);
+  assert.equal(listed.skills[0].command, "/memory-card");
+  const installed = await installHermesSkill(
+    "https://github.com/owner/repo",
+    true,
+    connection,
+    FakeSocket,
+  );
+  assert.equal(installed.installed, true);
+  const result = await requestHermesAgent("/memory-card make it", [{
+    name: "source.png",
+    dataUrl: "data:image/png;base64,aGVsbG8=",
+  }], {
+    connection,
+    WebSocketImpl: FakeSocket,
+    sessionId: "continued-session",
+  });
+  assert.equal(result.sessionId, "continued-session");
+  assert.equal(result.message, "完成。");
+  assert.equal(result.images[0].name, "result.png");
 });
