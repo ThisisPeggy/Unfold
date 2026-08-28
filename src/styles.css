@@ -2845,54 +2845,71 @@ body,
   background: var(--tale-accent-soft);
 }
 
-.unfold-export-dialog {
+.unfold-dialog {
   width: min(420px, calc(100vw - 32px));
   padding: 20px;
-  border: 1px solid #e5e5e3;
-  border-radius: 12px;
-  color: var(--color-ink, #37352f);
-  background: #fff;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 14%);
+  border: 0;
+  border-radius: 8px;
+  color: var(--tale-ink);
+  background: var(--tale-surface);
+  box-shadow:
+    0 0 0 1px rgb(15 15 15 / 8%),
+    0 8px 24px rgb(15 15 15 / 12%);
+  font: 14px/1.5 var(--tale-font);
 }
 
-.unfold-export-dialog::backdrop {
-  background: rgb(0 0 0 / 24%);
+.unfold-dialog::backdrop {
+  background: rgb(15 15 15 / 24%);
 }
 
-.unfold-export-dialog header {
+.unfold-dialog header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.unfold-export-dialog h2,
-.unfold-export-dialog p {
+.unfold-dialog h2,
+.unfold-dialog p {
   margin: 0;
 }
 
-.unfold-export-dialog h2 {
-  font-size: 18px;
+.unfold-dialog h2 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-wrap: balance;
 }
 
 .unfold-export-dialog > p {
-  margin-top: 6px;
-  color: #787774;
+  margin-top: 4px;
+  color: var(--tale-muted);
   font-size: 13px;
 }
 
-.unfold-export-dialog header button {
+.unfold-dialog__close {
   width: 40px;
   height: 40px;
+  padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
-  font-size: 24px;
+  font: 22px/1 var(--tale-font);
   cursor: pointer;
 }
 
-.unfold-export-dialog header button:hover {
-  background: #f5f5f4;
+.unfold-dialog__close:hover {
+  background: var(--tale-surface-hover);
+}
+
+.unfold-dialog__close:active,
+.unfold-dialog__actions button:active {
+  transform: scale(0.96);
+}
+
+.unfold-dialog button:focus-visible {
+  outline: 2px solid var(--tale-accent);
+  outline-offset: 2px;
 }
 
 .unfold-export-options {
@@ -2914,9 +2931,8 @@ body,
 
 .unfold-export-options button:hover,
 .unfold-export-options button:focus-visible {
-  border-color: #2383e2;
-  background: #f7fbff;
-  outline: none;
+  border-color: var(--tale-accent);
+  background: var(--tale-accent-soft);
 }
 
 .unfold-export-options strong,
@@ -2926,12 +2942,68 @@ body,
 
 .unfold-export-options span {
   margin-top: 8px;
-  color: #787774;
+  color: var(--tale-muted);
   font-size: 12px;
   line-height: 1.4;
 }
 
 .unfold-export-dialog .unfold-export-error {
   margin-top: 12px;
-  color: #c92a2a;
+  color: var(--tale-danger);
+}
+
+.unfold-confirm-dialog > p {
+  margin-top: 8px;
+  color: var(--tale-muted);
+  text-wrap: pretty;
+}
+
+.unfold-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.unfold-dialog__actions button {
+  position: relative;
+  min-width: 56px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tale-ink);
+  background: var(--tale-surface);
+  box-shadow: 0 0 0 1px rgb(55 53 47 / 14%);
+  font: 500 13px/1 var(--tale-font);
+  cursor: pointer;
+  transition-property: background-color, transform;
+  transition-duration: 120ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.unfold-dialog__actions button::before {
+  position: absolute;
+  inset: -4px 0;
+  content: "";
+}
+
+.unfold-dialog__actions button:hover {
+  background: var(--tale-surface-hover);
+}
+
+.unfold-dialog__actions .unfold-dialog__danger {
+  color: #e03e3e;
+  background: #fbe4e4;
+  box-shadow: none;
+}
+
+.unfold-dialog__actions .unfold-dialog__danger:hover {
+  background: #f7d6d6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unfold-dialog button {
+    transition: none;
+  }
 }

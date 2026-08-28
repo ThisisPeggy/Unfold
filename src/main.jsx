@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
+  CaptureUpdateAction,
   convertToExcalidrawElements,
   Excalidraw,
   exportToBlob,
@@ -72,6 +73,9 @@ const PAPER = "#ffffff";
 const DEFAULT_STROKE_COLOR = "#37352f";
 const STORY_PADDING = 32;
 const STORY_CAMERA_DURATION = 280;
+const CLEAR_CANVAS_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform)
+  ? "⌘⌫"
+  : "Ctrl+Del";
 
 function storyPaddingForElements(elements) {
   return Math.max(
@@ -1937,7 +1941,7 @@ function StoryView({ scene, onExit }) {
   );
 }
 
-function ExportDialog({ error, onClose, onExport }) {
+function UnfoldDialog({ children, className = "", onClose, showClose = true, title }) {
   const dialogRef = useRef(null);
 
   useEffect(() => {
@@ -1946,16 +1950,28 @@ function ExportDialog({ error, onClose, onExport }) {
 
   return (
     <dialog
-      aria-labelledby="export-dialog-title"
-      className="unfold-export-dialog"
-      onCancel={onClose}
-      onClose={onClose}
+      aria-labelledby="unfold-dialog-title"
+      className={`unfold-dialog ${className}`}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       ref={dialogRef}
     >
       <header>
-        <h2 id="export-dialog-title">导出</h2>
-        <button aria-label="关闭" onClick={onClose} type="button">×</button>
+        <h2 id="unfold-dialog-title">{title}</h2>
+        {showClose && (
+          <button className="unfold-dialog__close" aria-label="关闭" onClick={onClose} type="button">×</button>
+        )}
       </header>
+      {children}
+    </dialog>
+  );
+}
+
+function ExportDialog({ error, onClose, onExport }) {
+  return (
+    <UnfoldDialog className="unfold-export-dialog" onClose={onClose} title="导出">
       <p>选择导出类型</p>
       <div className="unfold-export-options">
         <button autoFocus onClick={() => onExport("unfold")} type="button">
@@ -1972,7 +1988,24 @@ function ExportDialog({ error, onClose, onExport }) {
         </button>
       </div>
       {error && <p className="unfold-export-error" role="alert">{error}</p>}
-    </dialog>
+    </UnfoldDialog>
+  );
+}
+
+function ClearCanvasDialog({ onCancel, onConfirm }) {
+  return (
+    <UnfoldDialog
+      className="unfold-confirm-dialog"
+      onClose={onCancel}
+      showClose={false}
+      title="清空画布"
+    >
+      <p>这会清空整个画布。确定要继续吗？</p>
+      <div className="unfold-dialog__actions">
+        <button autoFocus onClick={onCancel} type="button">取消</button>
+        <button className="unfold-dialog__danger" onClick={onConfirm} type="button">清空</button>
+      </div>
+    </UnfoldDialog>
   );
 }
 
@@ -2008,6 +2041,7 @@ function App() {
   const [assistantVisited, setAssistantVisited] = useState(false);
   const [agentUndoAvailable, setAgentUndoAvailable] = useState(false);
   const [hermesConnected, setHermesConnected] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportError, setExportError] = useState("");
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
@@ -2349,6 +2383,38 @@ function App() {
       );
     }, 400);
   }, [excalidrawAPI, highlighterActive]);
+
+  const clearCanvas = useCallback(() => {
+    if (!excalidrawAPI) return;
+    setClearOpen(false);
+    setLinkEditorId(null);
+    setPathEditorOpen(false);
+    setAssistantOpen(false);
+    setHighlighterActive(false);
+    excalidrawAPI.setActiveTool({ type: "selection" });
+    excalidrawAPI.updateScene({
+      elements: excalidrawAPI
+        .getSceneElementsIncludingDeleted()
+        .map((element) => newElementWith(element, { isDeleted: true })),
+      appState: { selectedElementIds: {}, selectedGroupIds: {} },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  }, [excalidrawAPI]);
+
+  const handleClearShortcut = useCallback((event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      preview || exportOpen || clearOpen ||
+      target?.closest("input, textarea, select, [contenteditable]") ||
+      (!event.metaKey && !event.ctrlKey) ||
+      event.altKey ||
+      event.shiftKey ||
+      !["Backspace", "Delete"].includes(event.key)
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setClearOpen(true);
+  }, [clearOpen, exportOpen, preview]);
 
   const publish = useCallback(async () => {
     if (publishState === "working") return;
@@ -2926,7 +2992,10 @@ function App() {
   );
 
   return (
-    <main className={`canvas-app${isShared ? " canvas-app--shared" : ""}${highlighterActive ? " canvas-app--highlighting" : ""}`}>
+    <main
+      className={`canvas-app${isShared ? " canvas-app--shared" : ""}${highlighterActive ? " canvas-app--highlighting" : ""}`}
+      onKeyDownCapture={handleClearShortcut}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -2999,6 +3068,7 @@ function App() {
           renderTopRightUI={() => renderCanvasControls(true)}
           UIOptions={{
             canvasActions: {
+              clearCanvas: false,
               loadScene: false,
               export: { saveFileToDisk: false },
               searchMenu: false,
@@ -3048,7 +3118,26 @@ function App() {
           <MainMenu.Separator />
           <MainMenu.Group>
             <MainMenu.DefaultItems.Help />
-            <MainMenu.DefaultItems.ClearCanvas />
+            <MainMenu.Item
+              data-testid="clear-canvas-button"
+              icon={(
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
+                </svg>
+              )}
+              onSelect={() => setClearOpen(true)}
+              shortcut={CLEAR_CANVAS_SHORTCUT}
+            >
+              清空画布
+            </MainMenu.Item>
           </MainMenu.Group>
           <MainMenu.Separator />
           <MainMenu.Group>
@@ -3106,6 +3195,12 @@ function App() {
           error={exportError}
           onClose={() => setExportOpen(false)}
           onExport={exportScene}
+        />
+      )}
+      {!preview && clearOpen && (
+        <ClearCanvasDialog
+          onCancel={() => setClearOpen(false)}
+          onConfirm={clearCanvas}
         />
       )}
     </main>

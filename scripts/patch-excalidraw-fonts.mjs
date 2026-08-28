@@ -255,10 +255,6 @@ const patches = [
   ['edges:"\\u8FB9\\u89D2"', 'edges:"\\u5706\\u89D2"'],
   ['fontSize: "\\u5B57\\u4F53\\u5927\\u5C0F"', 'fontSize: "\\u5B57\\u53F7"'],
   ['fontSize:"\\u5B57\\u4F53\\u5927\\u5C0F"', 'fontSize:"\\u5B57\\u53F7"'],
-  ['clearReset: "\\u91CD\\u7F6E\\u753B\\u5E03"', 'clearReset: "\\u6E05\\u7A7A\\u753B\\u5E03"'],
-  ['clearReset:"\\u91CD\\u7F6E\\u753B\\u5E03"', 'clearReset:"\\u6E05\\u7A7A\\u753B\\u5E03"'],
-  ['clearReset: "\\u6E05\\u7A7A\\u753B\\u5E03\\u2026"', 'clearReset: "\\u6E05\\u7A7A\\u753B\\u5E03"'],
-  ['clearReset:"\\u6E05\\u7A7A\\u753B\\u5E03\\u2026"', 'clearReset:"\\u6E05\\u7A7A\\u753B\\u5E03"'],
   [
     '"Liberation Sans": 9\n};',
     '"Liberation Sans": 9,\n  "小赖字体": 10,\n  "霞鹜文楷 GB": 11\n};',
@@ -440,10 +436,7 @@ const trueBoldVerified = files.filter((file) =>
 ).length;
 const propertyLabelsVerified = files.filter((file) => {
   const source = fs.readFileSync(file, "utf8");
-  return source.includes("\\u624B\\u7ED8\\u7A0B\\u5EA6") &&
-    source.includes("clearReset") &&
-    source.includes("\\u6E05\\u7A7A\\u753B\\u5E03") &&
-    !source.includes("\\u6E05\\u7A7A\\u753B\\u5E03\\u2026");
+  return source.includes("\\u624B\\u7ED8\\u7A0B\\u5EA6");
 }).length;
 const authoredPaletteVerified = files.filter((file) => {
   const source = fs.readFileSync(file, "utf8");
