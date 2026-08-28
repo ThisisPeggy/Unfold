@@ -834,11 +834,15 @@ function HermesAssistantPanel({
       const agentMode = displayPrompt.startsWith("/") || pendingAttachments.length > 0;
       if (agentMode) {
         const imageCommand = displayPrompt.match(/^\/image(?:\s+([\s\S]*))?$/);
+        const asciiCommand = displayPrompt.match(/^\/ascii-art(?:\s+([\s\S]*))?$/);
         const agentPrompt = imageCommand
           ? `请使用 image_generate 工具生成图片并把成品返回给用户。${imageCommand[1]?.trim() || "请先询问用户想生成什么图片。"}`
           : displayPrompt;
+        const resolvedAgentPrompt = asciiCommand
+          ? `Return only plain-text ASCII art. Do not call image tools and do not output JSON. ${asciiCommand[1]?.trim() || "Generate a simple ASCII drawing."}`
+          : agentPrompt;
         const result = await onRunAgent(
-          agentPrompt,
+          resolvedAgentPrompt,
           pendingAttachments.map((item) => item.file),
           agentSessionRef.current,
           controller.signal,
@@ -1026,6 +1030,12 @@ function HermesAssistantPanel({
                   <button type="button" className="assistant-insert-text" onClick={() => onInsertText(message.asciiArt)}>
                     放到画布
                   </button>
+                )}
+                {message.error && message.retryPrompt && (
+                  <button type="button" className="assistant-retry assistant-retry--message" disabled={busy} onClick={() => {
+                    setMessages((value) => value.map((item) => item.id === message.id ? { ...item, retryPrompt: null } : item));
+                    submitPrompt(message.retryPrompt, false);
+                  }}>重试</button>
                 )}
                 {message.plan && (
                   <section className="assistant-plan">
@@ -1238,7 +1248,7 @@ function HermesAssistantPanel({
               <button type="button" onClick={reconnect}>重新连接</button>
             </div>
           </div>
-          {retryMessage && (
+          {false && retryMessage && (
             <button
               type="button"
               className="assistant-retry assistant-retry--composer"
