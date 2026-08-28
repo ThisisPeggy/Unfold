@@ -405,7 +405,7 @@ export function buildHermesLectureRequest(elements, storyPath, goal = "", option
       })).filter((message) => message.text)
     : [];
   return {
-    goal: String(goal).trim().slice(0, 600),
+    goal: String(goal).trim(),
     scope: selected.size ? "selection" : "canvas",
     omittedElementCount: Math.max(0, candidates.length - visible.length),
     elements: visible.map((element) => ({

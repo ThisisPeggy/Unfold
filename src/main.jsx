@@ -35,6 +35,7 @@ import {
   installHermesSkill,
   listHermesSkills,
   readHermesConnection,
+  RECOMMENDED_HERMES_SKILLS,
   recommendedHermesSkills,
   requestHermesAgent,
   requestHermesLecturePlan,
@@ -122,6 +123,7 @@ const ASSISTANT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", 
 const MAX_ASSISTANT_IMAGE_BYTES = 10 * 1024 * 1024;
 const BUILTIN_AGENT_COMMANDS = [
   { command: "/image", name: "生成图片", description: "使用 Hermes 原生图片工具，不需要 skill", builtin: true },
+  { command: "/ascii-art", name: "ASCII 艺术", description: "让 Hermes 生成纯文本 ASCII 图案", builtin: true },
   { command: "/install-skill", name: "安装 GitHub skill", description: "粘贴包含 SKILL.md 的 GitHub 仓库地址", builtin: true },
 ];
 
@@ -574,6 +576,7 @@ function HermesAssistantPanel({
   const composerRef = useRef(null);
   const fileInputRef = useRef(null);
   const conversationRef = useRef(null);
+  const slashOptionRefs = useRef([]);
   const firstActionRef = useRef(null);
   const generationRef = useRef(null);
   const agentSessionRef = useRef(crypto.randomUUID());
@@ -584,7 +587,13 @@ function HermesAssistantPanel({
     const match = input.match(/^\/([^\s]*)$/);
     if (!match) return [];
     const query = match[1].toLowerCase();
-    return [...BUILTIN_AGENT_COMMANDS, ...recommendedHermesSkills(skills), ...skills]
+    const recommendedCommands = new Set(RECOMMENDED_HERMES_SKILLS.map((skill) => skill.command));
+    const installedRecommended = skills.filter((skill) => recommendedCommands.has(skill.command));
+    return [
+      ...BUILTIN_AGENT_COMMANDS.filter((item) => ["/image", "/ascii-art"].includes(item.command)),
+      ...recommendedHermesSkills(skills),
+      ...installedRecommended,
+    ]
       .filter((item) => item.command.slice(1).toLowerCase().includes(query))
       .slice(0, 8);
   }, [input, skills, slashDismissed]);
@@ -685,6 +694,10 @@ function HermesAssistantPanel({
   useEffect(() => {
     setSlashIndex((index) => Math.min(index, Math.max(0, slashSuggestions.length - 1)));
   }, [slashSuggestions.length]);
+
+  useEffect(() => {
+    slashOptionRefs.current[slashIndex]?.scrollIntoView({ block: "nearest" });
+  }, [slashIndex, slashSuggestions.length]);
 
   const copyValue = async (kind, value) => {
     try {
@@ -1084,15 +1097,6 @@ function HermesAssistantPanel({
               <button type="button" onClick={onClearSelection}>清除选区</button>
             </div>
           )}
-          <div className="assistant-connection-tools" role="status">
-            <span><i data-state="connected" aria-hidden="true" />Hermes 已连接</span>
-            <div>
-              <button type="button" onClick={() => copyValue("command", command)}>
-                {copied === "command" ? "命令已复制" : "更新 Connector"}
-              </button>
-              <button type="button" onClick={reconnect}>重新连接</button>
-            </div>
-          </div>
           <div className="assistant-composer-shell">
             {slashSuggestions.length > 0 && (
               <ul id="hermes-slash-options" className="assistant-slash-options" role="listbox" aria-label="Hermes skills 和命令">
@@ -1104,6 +1108,7 @@ function HermesAssistantPanel({
                       role="option"
                       aria-selected={index === slashIndex}
                       data-active={index === slashIndex}
+                      ref={(node) => { slashOptionRefs.current[index] = node; }}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectSlashSuggestion(item)}
                     >
@@ -1145,7 +1150,6 @@ function HermesAssistantPanel({
               <textarea
                 ref={composerRef}
                 rows="1"
-                maxLength="600"
                 value={input}
                 placeholder="问问题；输入 / 使用 skill 或生图…"
                 aria-label="发送给 Hermes 的消息"
@@ -1198,7 +1202,7 @@ function HermesAssistantPanel({
                 <AttachmentIcon />
               </button>
               <span className="assistant-input-meta" title={imageGeneration ? "Hermes 图片工具已配置" : "Hermes 图片工具尚未配置"}>
-                {input.length}/600
+                {input.length}
               </span>
               <button
                 className="assistant-send-button"
@@ -1210,6 +1214,15 @@ function HermesAssistantPanel({
                 {busy ? <StopIcon /> : <SendIcon />}
               </button>
             </form>
+          </div>
+          <div className="assistant-connection-tools" role="status">
+            <span><i data-state="connected" aria-hidden="true" />Hermes 已连接</span>
+            <div>
+              <button type="button" onClick={() => copyValue("command", command)}>
+                {copied === "command" ? "命令已复制" : "更新 Connector"}
+              </button>
+              <button type="button" onClick={reconnect}>重新连接</button>
+            </div>
           </div>
           {retryMessage && (
             <button
