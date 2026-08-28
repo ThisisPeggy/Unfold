@@ -898,6 +898,51 @@ body,
   font-size: 11px;
 }
 
+.assistant-connection-tools {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 16px 6px;
+  color: var(--tale-muted);
+  font-size: 10px;
+}
+
+.assistant-connection-tools > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.assistant-connection-tools i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4c9b72;
+}
+
+.assistant-connection-tools div {
+  display: flex;
+  gap: 2px;
+}
+
+.assistant-connection-tools button {
+  min-height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--tale-muted);
+  background: transparent;
+  font: 500 10px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.assistant-connection-tools button:hover {
+  color: var(--tale-ink);
+  background: var(--tale-surface-subtle);
+}
+
 .assistant-composer-shell {
   position: relative;
 }

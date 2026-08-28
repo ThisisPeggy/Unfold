@@ -705,6 +705,12 @@ function HermesAssistantPanel({
     onConnectionChange(false);
   };
 
+  const reconnect = () => {
+    setConnectionState("checking");
+    onConnectionChange(false);
+    setCheckVersion((value) => value + 1);
+  };
+
   const clearAttachments = () => {
     attachments.forEach((item) => URL.revokeObjectURL(item.preview));
     setAttachments([]);
@@ -1078,6 +1084,15 @@ function HermesAssistantPanel({
               <button type="button" onClick={onClearSelection}>清除选区</button>
             </div>
           )}
+          <div className="assistant-connection-tools" role="status">
+            <span><i data-state="connected" aria-hidden="true" />Hermes 已连接</span>
+            <div>
+              <button type="button" onClick={() => copyValue("command", command)}>
+                {copied === "command" ? "命令已复制" : "更新 Connector"}
+              </button>
+              <button type="button" onClick={reconnect}>重新连接</button>
+            </div>
+          </div>
           <div className="assistant-composer-shell">
             {slashSuggestions.length > 0 && (
               <ul id="hermes-slash-options" className="assistant-slash-options" role="listbox" aria-label="Hermes skills 和命令">
