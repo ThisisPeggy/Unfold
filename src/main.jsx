@@ -362,7 +362,6 @@ function HighlighterTool({ active, onToggle, target }) {
       <button
         className="highlighter-tool"
         type="button"
-        style={{ "--marker-color": DEFAULT_STROKE_COLOR }}
         aria-label={active ? "关闭高亮笔" : "使用高亮笔"}
         aria-pressed={active}
         onClick={onToggle}
@@ -371,7 +370,6 @@ function HighlighterTool({ active, onToggle, target }) {
           <path d="m14.8 3.8 5.4 5.4-8.7 8.7H6.1v-5.4Z" />
           <path d="m7.4 11.2 5.4 5.4M4 21h16" />
         </svg>
-        <span className="highlighter-tool__ink" aria-hidden="true" />
       </button>
     </div>,
     target,
@@ -3002,24 +3000,52 @@ function App() {
             canvasActions: {
               loadScene: false,
               export: { saveFileToDisk: false },
+              searchMenu: false,
+              addToLibrary: false,
             },
           }}
         >
         <MainMenu>
           <MainMenu.Group>
-            <MainMenu.Item onSelect={() => fileInputRef.current?.click()}>
-              打开 UNFOLD 文件
+            <MainMenu.Item
+              icon={(
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M3.5 6.5h6l2 2h9v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
+                </svg>
+              )}
+              onSelect={() => fileInputRef.current?.click()}
+            >
+              打开文件
+            </MainMenu.Item>
+            <MainMenu.Item
+              icon={(
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 3.5v11m-4-4 4 4 4-4M5 18.5h14" />
+                </svg>
+              )}
+              onSelect={() => setExportOpen(true)}
+            >
+              导出
             </MainMenu.Item>
           </MainMenu.Group>
           <MainMenu.Separator />
           <MainMenu.Group>
-            <MainMenu.Item onSelect={() => setExportOpen(true)}>
-              导出…
-            </MainMenu.Item>
-          </MainMenu.Group>
-          <MainMenu.Separator />
-          <MainMenu.Group>
-            <MainMenu.DefaultItems.SearchMenu />
             <MainMenu.DefaultItems.Help />
             <MainMenu.DefaultItems.ClearCanvas />
           </MainMenu.Group>
@@ -3027,11 +3053,6 @@ function App() {
           <MainMenu.Group>
             <MainMenu.DefaultItems.ChangeCanvasBackground />
           </MainMenu.Group>
-          <MainMenu.Separator />
-          <MainMenu.ItemCustom className="tale-menu-brand">
-            <strong>迹·叙</strong>
-            <span>Unfold your story.</span>
-          </MainMenu.ItemCustom>
         </MainMenu>
         <WelcomeScreen>
           <WelcomeScreen.Center>

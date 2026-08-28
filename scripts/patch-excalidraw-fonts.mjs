@@ -16,12 +16,13 @@ if (fs.existsSync(viteRoot)) {
 }
 
 // Add dev files if they exist (for Vercel builds)
-const devFiles = ["dev/index.js", "dev/chunk-4FTI6OG3.js"];
-for (const devFile of devFiles) {
-  const fullPath = path.join(root, devFile);
-  if (fs.existsSync(fullPath)) {
-    files.push(fullPath);
-  }
+const devDir = path.join(root, "dev");
+if (fs.existsSync(devDir)) {
+  files.push(
+    ...fs.readdirSync(devDir)
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => path.join(devDir, name)),
+  );
 }
 
 // Add prod files (for production builds)
@@ -33,6 +34,16 @@ if (fs.existsSync(prodDir)) {
   files.push(...prodFiles);
 }
 
+for (const build of ["dev", "prod"]) {
+  const localeDir = path.join(root, build, "locales");
+  if (!fs.existsSync(localeDir)) continue;
+  files.push(
+    ...fs.readdirSync(localeDir)
+      .filter((name) => name.startsWith("zh-CN-") && name.endsWith(".js"))
+      .map((name) => path.join(localeDir, name)),
+  );
+}
+
 if (files.length === 0) {
   console.warn("Warning: No Excalidraw dist files found to patch.");
   console.warn("This might be normal during initial install. Skipping patch.");
@@ -40,6 +51,168 @@ if (files.length === 0) {
 }
 
 const patches = [
+  [
+    `            /* @__PURE__ */ jsx70(
+              DropdownMenu_default.Item,
+              {
+                onSelect: () => app.setActiveTool({ type: "laser" }),
+                icon: laserPointerToolIcon,
+                "data-testid": "toolbar-laser",
+                selected: laserToolSelected,
+                shortcut: KEYS.K.toLocaleUpperCase(),
+                children: t("toolBar.laser")
+              }
+            ),
+`,
+    ``,
+  ],
+  [
+    `        if (event.key === KEYS.K && !event.altKey && !event[KEYS.CTRL_OR_CMD]) {
+          if (this.state.activeTool.type === "laser") {
+            this.setActiveTool({ type: "selection" });
+          } else {
+            this.setActiveTool({ type: "laser" });
+          }
+          return;
+        }
+`,
+    ``,
+  ],
+  [
+    `                /* @__PURE__ */ jsx92(Shortcut, { label: t("toolBar.laser"), shortcuts: [KEYS.K] }),
+`,
+    ``,
+  ],
+  [
+    `              isCollaborating && /* @__PURE__ */ jsx137(
+                Island,
+                {
+                  style: {
+                    marginLeft: 8,
+                    alignSelf: "center",
+                    height: "fit-content"
+                  },
+                  children: /* @__PURE__ */ jsx137(
+                    LaserPointerButton,
+                    {
+                      title: t("toolBar.laser"),
+                      checked: appState.activeTool.type === TOOL_TYPE.laser,
+                      onChange: () => app.setActiveTool({ type: TOOL_TYPE.laser }),
+                      isMobile: true
+                    }
+                  )
+                }
+              )
+`,
+    ``,
+  ],
+  [
+    'Me(Ce.Item,{onSelect:()=>t.setActiveTool({type:"laser"}),icon:ql,"data-testid":"toolbar-laser",selected:l,shortcut:y.K.toLocaleUpperCase(),children:g("toolBar.laser")}),',
+    '',
+  ],
+  [
+    'if(t.key===y.K&&!t.altKey&&!t[y.CTRL_OR_CMD]){this.state.activeTool.type==="laser"?this.setActiveTool({type:"selection"}):this.setActiveTool({type:"laser"});return}',
+    '',
+  ],
+  [
+    'B(U,{label:g("toolBar.laser"),shortcuts:[y.K]}),',
+    '',
+  ],
+  [
+    'x&&Z(Qe,{style:{marginLeft:8,alignSelf:"center",height:"fit-content"},children:Z(X0,{title:g("toolBar.laser"),checked:o.activeTool.type===kt.laser,onChange:()=>b.setActiveTool({type:kt.laser}),isMobile:!0})})',
+    '',
+  ],
+  [
+    `\t\t\t\t\t/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DropdownMenu_default.Item, {
+\t\t\t\t\t\tonSelect: () => app.setActiveTool({ type: "laser" }),
+\t\t\t\t\t\ticon: laserPointerToolIcon,
+\t\t\t\t\t\t"data-testid": "toolbar-laser",
+\t\t\t\t\t\tselected: laserToolSelected,
+\t\t\t\t\t\tshortcut: KEYS.K.toLocaleUpperCase(),
+\t\t\t\t\t\tchildren: t("toolBar.laser")
+\t\t\t\t\t}),
+`,
+    ``,
+  ],
+  [
+    `\t\t\tif (event.key === KEYS.K && !event.altKey && !event[KEYS.CTRL_OR_CMD]) {
+\t\t\t\tif (this.state.activeTool.type === "laser") this.setActiveTool({ type: "selection" });
+\t\t\t\telse this.setActiveTool({ type: "laser" });
+\t\t\t\treturn;
+\t\t\t}
+`,
+    ``,
+  ],
+  [
+    `\t\t\t\t\t\t/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Shortcut, {
+\t\t\t\t\t\t\tlabel: t("toolBar.laser"),
+\t\t\t\t\t\t\tshortcuts: [KEYS.K]
+\t\t\t\t\t\t}),
+`,
+    ``,
+  ],
+  [
+    `, isCollaborating && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Island, {
+\t\t\t\t\t\t\t\t\tstyle: {
+\t\t\t\t\t\t\t\t\t\tmarginLeft: 8,
+\t\t\t\t\t\t\t\t\t\talignSelf: "center",
+\t\t\t\t\t\t\t\t\t\theight: "fit-content"
+\t\t\t\t\t\t\t\t\t},
+\t\t\t\t\t\t\t\t\tchildren: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LaserPointerButton, {
+\t\t\t\t\t\t\t\t\t\ttitle: t("toolBar.laser"),
+\t\t\t\t\t\t\t\t\t\tchecked: appState.activeTool.type === TOOL_TYPE.laser,
+\t\t\t\t\t\t\t\t\t\tonChange: () => app.setActiveTool({ type: TOOL_TYPE.laser }),
+\t\t\t\t\t\t\t\t\t\tisMobile: true
+\t\t\t\t\t\t\t\t\t})
+\t\t\t\t\t\t\t\t})`,
+    ``,
+  ],
+  [
+    `var DEFAULT_ELEMENT_STROKE_PICKS = [
+  COLOR_PALETTE.black,
+  COLOR_PALETTE.red[DEFAULT_ELEMENT_STROKE_COLOR_INDEX],
+  COLOR_PALETTE.green[DEFAULT_ELEMENT_STROKE_COLOR_INDEX],
+  COLOR_PALETTE.blue[DEFAULT_ELEMENT_STROKE_COLOR_INDEX],
+  COLOR_PALETTE.yellow[DEFAULT_ELEMENT_STROKE_COLOR_INDEX]
+];`,
+    `var DEFAULT_ELEMENT_STROKE_PICKS = ["#37352f", "#d44c47", "#448361", "#337ea9", "#a56a3a"];`,
+  ],
+  [
+    `var DEFAULT_ELEMENT_BACKGROUND_PICKS = [
+  COLOR_PALETTE.transparent,
+  COLOR_PALETTE.red[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX],
+  COLOR_PALETTE.green[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX],
+  COLOR_PALETTE.blue[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX],
+  COLOR_PALETTE.yellow[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX]
+];`,
+    `var DEFAULT_ELEMENT_BACKGROUND_PICKS = ["transparent", "#fdebec", "#edf3ec", "#e7f3f8", "#fbf3db"];`,
+  ],
+  [
+    'Z.black,Z.red[fo],Z.green[fo],Z.blue[fo],Z.yellow[fo]',
+    '"#37352f","#d44c47","#448361","#337ea9","#a56a3a"',
+  ],
+  [
+    'Z.transparent,Z.red[po],Z.green[po],Z.blue[po],Z.yellow[po]',
+    '"transparent","#fdebec","#edf3ec","#e7f3f8","#fbf3db"',
+  ],
+  ['stroke: "\\u63CF\\u8FB9"', 'stroke: "\\u989C\\u8272"'],
+  ['stroke:"\\u63CF\\u8FB9"', 'stroke:"\\u989C\\u8272"'],
+  ['background: "\\u80CC\\u666F"', 'background: "\\u586B\\u5145\\u989C\\u8272"'],
+  ['background:"\\u80CC\\u666F"', 'background:"\\u586B\\u5145\\u989C\\u8272"'],
+  ['strokeWidth: "\\u63CF\\u8FB9\\u5BBD\\u5EA6"', 'strokeWidth: "\\u7EBF\\u6761\\u7C97\\u7EC6"'],
+  ['strokeWidth:"\\u63CF\\u8FB9\\u5BBD\\u5EA6"', 'strokeWidth:"\\u7EBF\\u6761\\u7C97\\u7EC6"'],
+  ['strokeStyle: "\\u8FB9\\u6846\\u6837\\u5F0F"', 'strokeStyle: "\\u7EBF\\u6761\\u6837\\u5F0F"'],
+  ['strokeStyle:"\\u8FB9\\u6846\\u6837\\u5F0F"', 'strokeStyle:"\\u7EBF\\u6761\\u6837\\u5F0F"'],
+  ['sloppiness: "\\u7EBF\\u6761\\u98CE\\u683C"', 'sloppiness: "\\u624B\\u7ED8\\u7A0B\\u5EA6"'],
+  ['sloppiness:"\\u7EBF\\u6761\\u98CE\\u683C"', 'sloppiness:"\\u624B\\u7ED8\\u7A0B\\u5EA6"'],
+  ['textAlign: "\\u6587\\u672C\\u5BF9\\u9F50"', 'textAlign: "\\u5BF9\\u9F50"'],
+  ['textAlign:"\\u6587\\u672C\\u5BF9\\u9F50"', 'textAlign:"\\u5BF9\\u9F50"'],
+  ['edges: "\\u8FB9\\u89D2"', 'edges: "\\u5706\\u89D2"'],
+  ['edges:"\\u8FB9\\u89D2"', 'edges:"\\u5706\\u89D2"'],
+  ['fontSize: "\\u5B57\\u4F53\\u5927\\u5C0F"', 'fontSize: "\\u5B57\\u53F7"'],
+  ['fontSize:"\\u5B57\\u4F53\\u5927\\u5C0F"', 'fontSize:"\\u5B57\\u53F7"'],
+  ['clearReset: "\\u91CD\\u7F6E\\u753B\\u5E03"', 'clearReset: "\\u6E05\\u7A7A\\u753B\\u5E03\\u2026"'],
+  ['clearReset:"\\u91CD\\u7F6E\\u753B\\u5E03"', 'clearReset:"\\u6E05\\u7A7A\\u753B\\u5E03\\u2026"'],
   [
     '"Liberation Sans": 9\n};',
     '"Liberation Sans": 9,\n  "小赖字体": 10,\n  "霞鹜文楷 GB": 11\n};',
@@ -138,6 +311,14 @@ const patches = [
   ],
 ];
 
+const iconPatches = [
+  ["M4.167 10h11.666", "M3 10h14"],
+  ["M5 10h10", "M3 10h14"],
+  ["M5 12h2", "M4 12h4"],
+  ["M11 12h2", "M10 12h4"],
+  ["M17 12h2", "M16 12h4"],
+];
+
 const migrations = [
   [
     'const onSelectCallback = useCallback3(\n      (value) => {\n        if (value) {\n          onSelect(value === FONT_FAMILY.Nunito && selectedFontFamily === value ? FONT_FAMILY.Helvetica : value);\n        }\n      },\n      [onSelect, selectedFontFamily]\n    );',
@@ -166,8 +347,14 @@ for (const file of files) {
     source = source.replace(before, after);
     changed = true;
   }
+  for (const [before, after] of iconPatches) {
+    if (!source.includes(before)) continue;
+    source = source.replaceAll(before, after);
+    applied += 1;
+    changed = true;
+  }
   for (const [before, after] of patches) {
-    if (source.includes(after)) continue;
+    if (after && source.includes(after)) continue;
     if (!source.includes(before)) continue;
     source = source.replace(before, after);
     applied += 1;
@@ -205,6 +392,29 @@ const localFontOriginVerified = files.filter((file) => {
 const trueBoldVerified = files.filter((file) =>
   fs.readFileSync(file, "utf8").includes("unfoldBold"),
 ).length;
+const propertyLabelsVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes("\\u624B\\u7ED8\\u7A0B\\u5EA6") &&
+    source.includes("\\u6E05\\u7A7A\\u753B\\u5E03\\u2026");
+}).length;
+const authoredPaletteVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes('"#37352f"') &&
+    source.includes('"#fdebec"') &&
+    source.includes('"#fbf3db"');
+}).length;
+const propertyIconsVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes("M3 10h14") &&
+    source.includes("M4 12h4") &&
+    source.includes("M16 12h4");
+}).length;
+const laserRemovedVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes("toolBar.mermaidToExcalidraw") &&
+    !source.includes('data-testid="toolbar-laser"') &&
+    !source.includes('data-testid:`toolbar-laser`');
+}).length;
 
 // Verification - require at least 1 instance of each critical patch
 const minRequired = {
@@ -215,6 +425,10 @@ const minRequired = {
   opentypeFormat: 1,
   localFontOrigin: 1,
   trueBold: 2,
+  propertyLabels: 2,
+  authoredPalette: 2,
+  propertyIcons: 2,
+  laserRemoved: 2,
 };
 
 const verificationResults = {
@@ -225,6 +439,10 @@ const verificationResults = {
   opentypeFormat: opentypeFormatVerified,
   localFontOrigin: localFontOriginVerified,
   trueBold: trueBoldVerified,
+  propertyLabels: propertyLabelsVerified,
+  authoredPalette: authoredPaletteVerified,
+  propertyIcons: propertyIconsVerified,
+  laserRemoved: laserRemovedVerified,
 };
 
 const failures = Object.entries(minRequired).filter(

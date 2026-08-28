@@ -76,6 +76,8 @@ body,
   --input-border-color: #d3d3d1;
   --input-hover-bg-color: var(--tale-surface-subtle);
   --link-color: var(--tale-accent);
+  --color-slider-track: var(--tale-accent);
+  --color-slider-thumb: #454541;
   --shadow-island: var(--tale-shadow);
 }
 
@@ -93,8 +95,10 @@ body,
 }
 
 .excalidraw .canvas-controls--embedded {
-  position: static;
-  z-index: auto;
+  position: fixed;
+  z-index: 10;
+  top: 16px;
+  right: 16px;
 }
 
 .save-state {
@@ -1633,6 +1637,12 @@ body,
   outline-offset: 1px;
 }
 
+.excalidraw .help-icon {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+}
+
 .excalidraw .main-menu-trigger,
 .excalidraw .help-icon {
   border-color: transparent;
@@ -1755,16 +1765,6 @@ body,
   stroke-width: 1.6;
 }
 
-.highlighter-tool__ink {
-  position: absolute;
-  right: 7px;
-  bottom: 3px;
-  left: 7px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--marker-color);
-}
-
 .canvas-app > .excalidraw .default-sidebar-trigger {
   display: none;
 }
@@ -1773,21 +1773,342 @@ body,
   display: none !important;
 }
 
-.excalidraw .tale-menu-brand {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 8px 4px 2px;
-  color: var(--tale-muted);
-  font-size: 11px;
+/* ponytail: tied to Excalidraw 0.18.1 row order; use a custom dialog only if an upgrade changes it. */
+.excalidraw .HelpDialog__shortcut {
+  display: none;
 }
 
-.excalidraw .tale-menu-brand strong {
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(2),
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(3),
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(6),
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(7),
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(8),
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(9),
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(10),
+.HelpDialog__island--view .HelpDialog__shortcut:nth-child(-n + 4),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(3),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(5),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(6),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(7),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(8),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(11),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(25),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(27),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(28),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(29),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(30) {
+  display: flex;
+}
+
+.HelpDialog__island--tools .HelpDialog__shortcut:nth-child(10),
+.HelpDialog__island--view .HelpDialog__shortcut:nth-child(4),
+.HelpDialog__island--editor .HelpDialog__shortcut:nth-child(30) {
+  border-bottom: 0;
+}
+
+.excalidraw [data-testid="main-menu-trigger"] + [data-testid="dropdown-menu"]
+  .dropdown-menu-container {
+  width: 224px;
+  padding: 6px;
+}
+
+.excalidraw .default-sidebar-trigger,
+.excalidraw .default-sidebar {
+  display: none;
+}
+
+.excalidraw [data-testid="main-menu-trigger"] + [data-testid="dropdown-menu"]
+  .dropdown-menu-item {
+  min-height: 40px;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 6px;
+}
+
+.excalidraw [data-testid="main-menu-trigger"] + [data-testid="dropdown-menu"]
+  .dropdown-menu-item:active {
+  transform: scale(0.96);
+}
+
+.excalidraw [data-testid="main-menu-trigger"] + [data-testid="dropdown-menu"]
+  .dropdown-menu-item__shortcut {
+  color: var(--tale-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+
+.excalidraw [data-testid="main-menu-trigger"] + [data-testid="dropdown-menu"]
+  .dropdown-menu-item svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.excalidraw [data-testid="canvas-background-label"] {
+  margin-bottom: 8px !important;
+  color: var(--tale-muted);
+  font-size: 12px !important;
+  line-height: 1.25;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div {
+  padding: 0 !important;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker__top-picks {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker-container > div:nth-child(2) {
+  display: none;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker__button {
+  width: 26px;
+  height: 26px;
+  border-color: rgb(55 53 47 / 14%);
+  border-radius: 6px;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker__button.active-color {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  color: var(--tale-muted);
+  background: var(--tale-surface-subtle);
+  place-items: center;
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker__button.active-color::before {
+  content: "+";
+  font: 400 17px/1 var(--tale-font);
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker__button.active-color:hover {
   color: var(--tale-ink);
-  font-family: var(--tale-font);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.04em;
+  background: var(--tale-surface-hover);
+}
+
+.excalidraw [data-testid="canvas-background-label"] + div
+  .color-picker__button.active-color .color-picker__button-outline {
+  display: none;
+}
+
+.excalidraw .App-menu__left {
+  width: 224px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.excalidraw .App-menu__left .panelColumn {
+  row-gap: 12px;
+}
+
+.excalidraw .App-menu__left .panelColumn h3,
+.excalidraw .App-menu__left .panelColumn legend,
+.excalidraw .App-menu__left .panelColumn .control-label {
+  margin-bottom: 6px;
+  color: var(--tale-muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.excalidraw .App-menu__left .panelColumn .buttonList {
+  width: max-content;
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+}
+
+.excalidraw .App-menu__left .buttonList label,
+.excalidraw .App-menu__left .buttonList button,
+.excalidraw .App-menu__left .buttonList .zIndexButton {
+  --button-width: 36px;
+  --button-height: 36px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--tale-surface-subtle);
+}
+
+.excalidraw .App-menu__left .buttonList label.active,
+.excalidraw .App-menu__left .buttonList button.active,
+.excalidraw .App-menu__left .buttonList .zIndexButton.active {
+  color: #184e7a;
+  background: var(--tale-accent-soft);
+}
+
+.excalidraw .App-menu__left .buttonList label:active,
+.excalidraw .App-menu__left .buttonList button:active,
+.excalidraw .App-menu__left .buttonList .zIndexButton:active {
+  transform: scale(0.96);
+}
+
+.excalidraw .App-menu__left .color-picker-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-block: 0;
+}
+
+.excalidraw .App-menu__left .color-picker-container > div:nth-child(2) {
+  display: none;
+}
+
+.excalidraw .App-menu__left .color-picker__top-picks {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  justify-content: flex-start;
+}
+
+.excalidraw .App-menu__left .color-picker__button {
+  width: 26px;
+  height: 26px;
+  border-color: rgb(55 53 47 / 16%);
+  border-radius: 6px;
+}
+
+.excalidraw .App-menu__left .color-picker__top-picks
+  .color-picker__button.active {
+  border-color: var(--tale-accent);
+}
+
+.excalidraw .App-menu__left .color-picker__top-picks
+  .color-picker__button.active .color-picker__button-outline {
+  display: none;
+}
+
+.excalidraw .App-menu__left .color-picker__button.is-transparent:not(.active-color) {
+  overflow: hidden;
+  background: var(--tale-surface);
+}
+
+.excalidraw .App-menu__left .color-picker__button.is-transparent:not(.active-color)::before {
+  position: absolute;
+  top: 12px;
+  left: 4px;
+  width: 18px;
+  height: 1px;
+  background: #a8a7a3;
+  content: "";
+  transform: rotate(-45deg);
+}
+
+.excalidraw .App-menu__left .color-picker__button.active-color {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  margin-left: 0;
+  border: 0;
+  color: var(--tale-muted);
+  background: var(--tale-surface-subtle);
+  place-items: center;
+}
+
+.excalidraw .App-menu__left .color-picker__button.active-color::before {
+  content: "+";
+  font: 400 17px/1 var(--tale-font);
+}
+
+.excalidraw .App-menu__left .color-picker__button.active-color:hover {
+  color: var(--tale-ink);
+  background: var(--tale-surface-hover);
+}
+
+.excalidraw .App-menu__left .color-picker__button.active-color
+  .color-picker__button-outline {
+  display: none;
+}
+
+.excalidraw .App-menu__left .range-wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 2px;
+}
+
+.excalidraw .App-menu__left .range-input {
+  --button-bg: #e9e9e7;
+  --color-slider-track: #787774;
+  --color-slider-thumb: #5f5e5a;
+  --slider-thumb-size: 10px;
+  height: 2px;
+}
+
+.excalidraw .App-menu__left .range-input:focus-visible {
+  outline: 2px solid var(--tale-accent);
+  outline-offset: 4px;
+}
+
+.excalidraw .App-menu__left .value-bubble {
+  position: static;
+  min-width: 38px;
+  color: var(--tale-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transform: none;
+}
+
+.excalidraw .App-menu__left .value-bubble:not(:empty)::after {
+  content: "%";
+}
+
+.excalidraw .App-menu__left .value-bubble:empty::before {
+  content: "0%";
+}
+
+.excalidraw .App-menu__left .zero-label {
+  display: none;
+}
+
+.excalidraw .App-menu__left .buttonList:has(input[name="sloppiness"]) label {
+  --button-width: 48px;
+  color: var(--tale-muted);
+  font-size: 12px;
+}
+
+.excalidraw .App-menu__left .buttonList:has(input[name="sloppiness"])
+  label.active {
+  color: #184e7a;
+}
+
+.excalidraw .App-menu__left .buttonList:has(input[name="sloppiness"]) svg {
+  display: none;
+}
+
+.excalidraw .App-menu__left .buttonList:has(input[name="sloppiness"])
+  label:nth-child(1)::after {
+  content: "规整";
+}
+
+.excalidraw .App-menu__left .buttonList:has(input[name="sloppiness"])
+  label:nth-child(2)::after {
+  content: "自然";
+}
+
+.excalidraw .App-menu__left .buttonList:has(input[name="sloppiness"])
+  label:nth-child(3)::after {
+  content: "随性";
 }
 
 .excalidraw .welcome-screen-center__heading {
@@ -2385,6 +2706,19 @@ body,
   .canvas-controls {
     top: 12px;
     right: 12px;
+  }
+
+  .excalidraw .canvas-controls--embedded,
+  .excalidraw .help-icon {
+    right: 12px;
+  }
+
+  .excalidraw .canvas-controls--embedded {
+    top: 12px;
+  }
+
+  .excalidraw .help-icon {
+    bottom: 12px;
   }
 
   .story-path-editor {
