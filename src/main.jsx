@@ -1801,6 +1801,7 @@ function StoryScene({ activeStep, artwork, frame, linkedElements, targetViewBox 
 function StoryView({ scene, onExit }) {
   const [artwork, setArtwork] = useState(null);
   const [stepIndex, setStepIndex] = useState(0);
+  const embedded = window.self !== window.top;
   const visibleElements = useMemo(
     () => scene?.elements?.filter((element) => !element.isDeleted) ?? [],
     [scene],
@@ -1905,7 +1906,7 @@ function StoryView({ scene, onExit }) {
         linkedElements={linkedElements}
         targetViewBox={targetViewBox}
       />
-      <nav className="story-steps" aria-label="讲解步骤">
+      {!embedded && <nav className="story-steps" aria-label="讲解步骤">
         <button
           type="button"
           aria-label="上一步"
@@ -1931,7 +1932,7 @@ function StoryView({ scene, onExit }) {
         >
           <ChevronIcon direction="right" />
         </button>
-      </nav>
+      </nav>}
     </section>
   );
 }
