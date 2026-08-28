@@ -1643,6 +1643,10 @@ body,
   bottom: 16px;
 }
 
+.excalidraw [data-testid="help-menu-item"] .dropdown-menu-item__shortcut {
+  display: none;
+}
+
 .excalidraw .main-menu-trigger,
 .excalidraw .help-icon {
   border-color: transparent;

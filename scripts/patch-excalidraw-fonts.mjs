@@ -10,7 +10,7 @@ const files = [];
 // Try Vite cache first (for local development)
 if (fs.existsSync(viteRoot)) {
   const viteFiles = fs.readdirSync(viteRoot)
-    .filter((name) => name.startsWith("@excalidraw_excalidraw") && name.endsWith(".js"))
+    .filter((name) => (name.startsWith("@excalidraw_excalidraw") || name.startsWith("chunk-")) && name.endsWith(".js"))
     .map((name) => path.join(viteRoot, name));
   files.push(...viteFiles);
 }
@@ -166,6 +166,50 @@ const patches = [
 \t\t\t\t\t\t\t\t\t})
 \t\t\t\t\t\t\t\t})`,
     ``,
+  ],
+  [
+    `, isCollaborating && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Island, {
+						style: {
+							marginLeft: 8,
+							alignSelf: "center",
+							height: "fit-content"
+						},
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LaserPointerButton, {
+							title: t("toolBar.laser"),
+							checked: appState.activeTool.type === TOOL_TYPE.laser,
+							onChange: () => app.setActiveTool({ type: TOOL_TYPE.laser }),
+							isMobile: true
+						})
+					})`,
+    ``,
+  ],
+  [
+    `var DEFAULT_CANVAS_BACKGROUND_PICKS = [
+  COLOR_PALETTE.white,
+  // radix slate2
+`,
+    `var DEFAULT_CANVAS_BACKGROUND_PICKS = [
+  COLOR_PALETTE.black,
+  COLOR_PALETTE.white,
+  // radix slate2
+`,
+  ],
+  [
+    `var DEFAULT_CANVAS_BACKGROUND_PICKS = [
+	COLOR_PALETTE.white,
+	"#f8f9fa",`,
+    `var DEFAULT_CANVAS_BACKGROUND_PICKS = [
+	COLOR_PALETTE.black,
+	COLOR_PALETTE.white,
+	"#f8f9fa",`,
+  ],
+  [
+    'Q9=[Z.white,"#f8f9fa","#f5faff","#fffce8","#fdf8f6"]',
+    'Q9=[Z.black,Z.white,"#f8f9fa","#f5faff","#fffce8","#fdf8f6"]',
+  ],
+  [
+    'isCollaborating && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Island, {',
+    'false && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Island, {',
   ],
   [
     `var DEFAULT_ELEMENT_STROKE_PICKS = [
