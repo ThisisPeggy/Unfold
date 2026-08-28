@@ -984,6 +984,9 @@ function HermesAssistantPanel({
           {connectionError && (
             <div className="hermes-connect-error" role="alert">
               <p>{connectionError}</p>
+              <button type="button" onClick={() => copyValue("command", command)}>
+                {copied === "command" ? "已复制更新命令" : "重新安装 Connector"}
+              </button>
               <button type="button" onClick={() => setCheckVersion((value) => value + 1)}>再次检查</button>
             </div>
           )}
@@ -1238,15 +1241,6 @@ function HermesAssistantPanel({
                 {busy ? <StopIcon /> : <SendIcon />}
               </button>
             </form>
-          </div>
-          <div className="assistant-connection-tools" role="status">
-            <span><i data-state="connected" aria-hidden="true" />Hermes 已连接</span>
-            <div>
-              <button type="button" onClick={() => copyValue("command", command)}>
-                {copied === "command" ? "命令已复制" : "更新 Connector"}
-              </button>
-              <button type="button" onClick={reconnect}>重新连接</button>
-            </div>
           </div>
           {false && retryMessage && (
             <button
