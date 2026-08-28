@@ -2,7 +2,7 @@ export const HERMES_CONNECTION_KEY = "inkpath.hermes.connection.v1";
 
 const DEFAULT_PORT = 8765;
 const CONNECTOR_COMMIT = "bb2848e9d57f1b8c9a3414e98fb6b88670ed2f29";
-const CONNECTOR_BASE_URL = `https://raw.githubusercontent.com/ThisisPeggy/Unfold-Hermes-Connector/${CONNECTOR_COMMIT}`;
+const CONNECTOR_REPOSITORY = "https://github.com/ThisisPeggy/Unfold-Hermes-Connector";
 
 export const RECOMMENDED_HERMES_SKILLS = Object.freeze([
   {
@@ -55,8 +55,8 @@ export function hermesConnectorSetupCommand(
   platform = globalThis.navigator?.userAgentData?.platform || globalThis.navigator?.platform || "",
 ) {
   return /win/i.test(String(platform))
-    ? `$env:HERMES_BROWSER_CONNECTOR_COMMIT='${CONNECTOR_COMMIT}'; irm ${CONNECTOR_BASE_URL}/install.ps1 | iex`
-    : `HERMES_BROWSER_CONNECTOR_COMMIT='${CONNECTOR_COMMIT}' sh -c 'curl -fsSL ${CONNECTOR_BASE_URL}/install.sh | sh'`;
+    ? `$repo='${CONNECTOR_REPOSITORY}'; $dir=Join-Path $env:TEMP 'unfold-hermes-connector'; if (Test-Path (Join-Path $dir '.git')) { git -C $dir fetch --no-tags origin ${CONNECTOR_COMMIT}; if ($LASTEXITCODE -ne 0) { throw '无法更新 Connector 仓库。' } } else { git clone $repo $dir; if ($LASTEXITCODE -ne 0) { throw '无法克隆 Connector 仓库，请确认 GitHub 登录状态。' } }; git -C $dir checkout --force ${CONNECTOR_COMMIT}; if ($LASTEXITCODE -ne 0) { throw '无法切换到已审核的 Connector 版本。' }; $env:HERMES_BROWSER_CONNECTOR_COMMIT='${CONNECTOR_COMMIT}'; & (Join-Path $dir 'install.ps1')`
+    : `repo='${CONNECTOR_REPOSITORY}'; dir="\${TMPDIR:-/tmp}/unfold-hermes-connector"; if [ -d "$dir/.git" ]; then git -C "$dir" fetch --no-tags origin ${CONNECTOR_COMMIT} && git -C "$dir" checkout --force ${CONNECTOR_COMMIT}; else git clone "$repo" "$dir" && git -C "$dir" checkout --force ${CONNECTOR_COMMIT}; fi && HERMES_BROWSER_CONNECTOR_COMMIT='${CONNECTOR_COMMIT}' sh "$dir/install.sh"`;
 }
 
 export function readHermesConnection(storage = globalThis.localStorage) {

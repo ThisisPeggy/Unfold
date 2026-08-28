@@ -33,6 +33,7 @@ test("connects directly to the local Hermes Connector and validates the plan", a
   assert.match(hermesConnectorSetupCommand("MacIntel"), /install\.sh/);
   assert.match(hermesConnectorSetupCommand("Win32"), /install\.ps1/);
   assert.match(hermesConnectorSetupCommand("MacIntel"), /Unfold-Hermes-Connector/);
+  assert.match(hermesConnectorSetupCommand("Win32"), /git clone/);
   assert.deepEqual(buildHermesLectureRequest(elements, [], "介绍流程").elements[0], {
     id: "a",
     type: "text",
