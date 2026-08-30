@@ -18,6 +18,8 @@ import {
 import "@excalidraw/excalidraw/index.css";
 import "./styles.css";
 import AssistantMascot from "./AssistantMascot.jsx";
+import StoryCameraPreview from "./StoryCameraPreview.jsx";
+import StoryPathPanel from "./StoryPathEditor.jsx";
 import {
   decodeScene,
   encodeScene,
@@ -45,6 +47,7 @@ import {
 } from "./hermes.js";
 import {
   STORY_ICON_KINDS,
+  createStoryCameraShot,
   createGeneratedLecture,
   editorLinkSignature,
   getStoryFrame,
@@ -54,6 +57,7 @@ import {
   getStoryStepMarkerOffsets,
   getStorySteps,
   getStoryViewBox,
+  interpolateStoryCameraShot,
   interpolateStoryViewBox,
   makeStoryPath,
   mergeHermesStoryPath,
@@ -65,7 +69,6 @@ import {
   storyLinkGeometry,
   textHighlightColor,
   textHighlightRects,
-  transformStoryCamera,
 } from "./story.js";
 
 const STORAGE_KEY = "story-canvas.scene.v1";
@@ -1260,241 +1263,6 @@ function HermesAssistantPanel({
   );
 }
 
-function StoryPathEditor({
-  steps,
-  selectedCount,
-  onAdd,
-  onAdjustCamera,
-  onCaptureCamera,
-  onClose,
-  onMove,
-  onRemove,
-  onSetCameraPreset,
-  onUpdate,
-}) {
-  const [draggedStepId, setDraggedStepId] = useState(null);
-  const [dropTargetId, setDropTargetId] = useState(null);
-  const [editingStepId, setEditingStepId] = useState(null);
-  const listRef = useRef(null);
-  const previousStepCount = useRef(steps.length);
-  const editingStep = steps.find((step) => step.id === editingStepId) ?? null;
-
-  useEffect(() => {
-    if (steps.length > previousStepCount.current) {
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-    }
-    previousStepCount.current = steps.length;
-  }, [steps.length]);
-
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
-  return (
-    <section
-      id="story-path-editor"
-      className="story-path-editor"
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="story-path-title"
-    >
-      <header>
-        <div>
-          <h2 id="story-path-title">讲解路径</h2>
-          <p>选择元素添加步骤；同一元素可以重复出现。</p>
-        </div>
-        <button type="button" className="path-icon-button" aria-label="关闭讲解路径" onClick={onClose}>×</button>
-      </header>
-      {steps.length ? (
-        <ol ref={listRef} className="story-path-list">
-          {steps.map((element, index) => (
-            <li
-              key={element.id}
-              className={`${editingStepId === element.id ? "story-path-item--editing " : ""}${draggedStepId === element.id ? "story-path-item--dragging" : ""}${dropTargetId === element.id && draggedStepId !== element.id ? " story-path-item--drop-target" : ""}`}
-              draggable
-              title="拖动排序"
-              onDragStart={(event) => {
-                if (event.target.closest(".path-icon-button")) {
-                  event.preventDefault();
-                  return;
-                }
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", element.id);
-                setDraggedStepId(element.id);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                setDropTargetId(element.id);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const sourceId = event.dataTransfer.getData("text/plain") || draggedStepId;
-                const sourceIndex = steps.findIndex((step) => step.id === sourceId);
-                if (sourceIndex >= 0 && sourceIndex !== index) {
-                  onMove(sourceIndex, index - sourceIndex);
-                }
-                setDraggedStepId(null);
-                setDropTargetId(null);
-              }}
-              onDragEnd={() => {
-                setDraggedStepId(null);
-                setDropTargetId(null);
-              }}
-            >
-              <span className="story-path-drag-handle" aria-hidden="true">
-                <svg viewBox="0 0 12 18">
-                  <circle cx="3" cy="4" r="1" />
-                  <circle cx="9" cy="4" r="1" />
-                  <circle cx="3" cy="9" r="1" />
-                  <circle cx="9" cy="9" r="1" />
-                  <circle cx="3" cy="14" r="1" />
-                  <circle cx="9" cy="14" r="1" />
-                </svg>
-              </span>
-              <span className="story-path-number">{index + 1}</span>
-              <button
-                type="button"
-                className="story-path-label"
-                aria-label={`编辑讲解：${storyStepLabel(element)}`}
-                aria-expanded={editingStepId === element.id}
-                onClick={() => setEditingStepId((value) =>
-                  value === element.id ? null : element.id)}
-              >
-                <span>{storyStepLabel(element)}</span>
-                {element.storyNote && <i aria-hidden="true" />}
-              </button>
-              <button
-                type="button"
-                className="path-icon-button"
-                aria-label={`上移：${storyStepLabel(element)}`}
-                disabled={index === 0}
-                onClick={() => onMove(index, -1)}
-              >
-                <ChevronIcon direction="up" />
-              </button>
-              <button
-                type="button"
-                className="path-icon-button"
-                aria-label={`下移：${storyStepLabel(element)}`}
-                disabled={index === steps.length - 1}
-                onClick={() => onMove(index, 1)}
-              >
-                <ChevronIcon direction="down" />
-              </button>
-              <button
-                type="button"
-                className="path-icon-button"
-                aria-label={`移除：${storyStepLabel(element)}`}
-                onClick={() => {
-                  if (editingStepId === element.id) setEditingStepId(null);
-                  onRemove(element.id);
-                }}
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="story-path-empty">还没有讲解步骤。</p>
-      )}
-      {editingStep && (
-        <div className="story-copy-editor">
-          <label>
-            <span>步骤标题</span>
-            <input
-              type="text"
-              maxLength="80"
-              value={editingStep.storyTitle ?? ""}
-              placeholder={storyElementLabel(editingStep)}
-              onChange={(event) => onUpdate(editingStep.id, { title: event.target.value })}
-            />
-          </label>
-          <label>
-            <span>讲解文字</span>
-            <textarea
-              rows="3"
-              maxLength="500"
-              value={editingStep.storyNote ?? ""}
-              placeholder="解释这一部分是什么，以及为什么重要。"
-              onChange={(event) => onUpdate(editingStep.id, { note: event.target.value })}
-            />
-          </label>
-          <div className="story-camera-setting">
-            <span className="story-camera-setting__header">
-              <strong>镜头</strong>
-              <small>{editingStep.storyCamera ? "自定义镜头，可继续推拉或平移" : "自动聚焦所选元素"}</small>
-            </span>
-            <div className="story-camera-presets" role="group" aria-label="镜头预设">
-              <button
-                type="button"
-                className={editingStep.storyCamera ? "" : "is-active"}
-                aria-pressed={!editingStep.storyCamera}
-                onClick={() => onUpdate(editingStep.id, { camera: null })}
-              >
-                自动
-              </button>
-              <button type="button" onClick={() => onSetCameraPreset(editingStep.id, "close-up")}>
-                近景
-              </button>
-              <button type="button" onClick={() => onSetCameraPreset(editingStep.id, "overview")}>
-                全景
-              </button>
-              <button type="button" onClick={() => onCaptureCamera(editingStep.id)}>
-                当前画面
-              </button>
-            </div>
-            {editingStep.storyCamera && (
-              <div className="story-camera-adjustments">
-                <span>平移</span>
-                <div className="story-camera-button-row" role="group" aria-label="平移镜头">
-                  {[
-                    ["left", "向左平移", { panX: -0.12 }],
-                    ["up", "向上平移", { panY: -0.12 }],
-                    ["down", "向下平移", { panY: 0.12 }],
-                    ["right", "向右平移", { panX: 0.12 }],
-                  ].map(([direction, label, adjustment]) => (
-                    <button
-                      key={direction}
-                      type="button"
-                      aria-label={label}
-                      title={label}
-                      onClick={() => onAdjustCamera(editingStep.id, adjustment)}
-                    >
-                      <ChevronIcon direction={direction} />
-                    </button>
-                  ))}
-                </div>
-                <span>推拉</span>
-                <div className="story-camera-button-row story-camera-button-row--zoom" role="group" aria-label="推拉镜头">
-                  <button type="button" onClick={() => onAdjustCamera(editingStep.id, { zoom: 0.8 })}>拉近</button>
-                  <button type="button" onClick={() => onAdjustCamera(editingStep.id, { zoom: 1.25 })}>拉远</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      <button
-        type="button"
-        className="story-path-add"
-        disabled={!selectedCount}
-        onClick={() => {
-          const stepId = onAdd();
-          if (stepId) setEditingStepId(stepId);
-        }}
-      >
-        {selectedCount ? `添加选中的 ${selectedCount} 个元素` : "在画布中选择元素"}
-      </button>
-    </section>
-  );
-}
-
 function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, onRemove }) {
   const [url, setUrl] = useState(getStoryHref(element) ?? "");
   const [customIcon, setCustomIcon] = useState(getStoryIconImage(element));
@@ -1754,7 +1522,9 @@ function StoryScene({ activeStep, artwork, frame, linkedElements, targetViewBox 
       svg.setAttribute("viewBox", formatStoryViewBox(value));
       currentViewBox.current = value;
     };
-    const from = currentViewBox.current;
+    const shotStart = activeStep?.storyCameraStart;
+    const from = shotStart ?? currentViewBox.current;
+    if (shotStart) setViewBox(shotStart);
     const unchanged = ["x", "y", "width", "height"]
       .every((key) => from[key] === targetViewBox[key]);
     if (unchanged || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -1765,19 +1535,21 @@ function StoryScene({ activeStep, artwork, frame, linkedElements, targetViewBox 
     let startedAt;
     const animate = (time) => {
       startedAt ??= time;
-      const progress = (time - startedAt) / STORY_CAMERA_DURATION;
-      setViewBox(interpolateStoryViewBox(from, targetViewBox, progress));
+      const progress = (time - startedAt) /
+        (shotStart ? activeStep.storyCameraDuration : STORY_CAMERA_DURATION);
+      setViewBox(shotStart
+        ? interpolateStoryCameraShot(from, targetViewBox, progress)
+        : interpolateStoryViewBox(from, targetViewBox, progress));
       if (progress < 1) animationFrame = requestAnimationFrame(animate);
     };
     animationFrame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrame);
-  }, [targetViewBox]);
+  }, [activeStep, targetViewBox]);
 
   return (
     <svg
       ref={svgRef}
       className="story-scene"
-      style={{ "--story-ratio": frame.width / frame.height }}
       viewBox={formatStoryViewBox(frame)}
       aria-label="讲解画面"
     >
@@ -2009,6 +1781,39 @@ function ClearCanvasDialog({ onCancel, onConfirm }) {
   );
 }
 
+function CameraPreviewOverlay({ frame, onClose, scene, step }) {
+  const [replayKey, setReplayKey] = useState(0);
+  const end = step.storyCamera ?? getStoryViewBox(frame, step, 2.2, 96);
+  const start = step.storyCameraStart ?? end;
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <section className="story-camera-fullscreen" aria-label={`预览镜头：${storyStepLabel(step)}`}>
+      <StoryCameraPreview
+        className="story-camera-preview--full"
+        duration={step.storyCameraDuration}
+        end={end}
+        frame={frame}
+        replayKey={replayKey}
+        scene={scene}
+        start={start}
+      />
+      <button type="button" className="story-camera-preview-close" onClick={onClose}>返回镜头设置</button>
+      <div className="story-camera-preview-controls">
+        <span>{storyStepLabel(step)}</span>
+        <button type="button" onClick={() => setReplayKey((value) => value + 1)}>↻ 重播</button>
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const sharedPayload = useMemo(
     () => new URLSearchParams(location.hash.slice(1)).get("scene"),
@@ -2037,6 +1842,7 @@ function App() {
   const [linkEditorId, setLinkEditorId] = useState(null);
   const [highlighterActive, setHighlighterActive] = useState(false);
   const [pathEditorOpen, setPathEditorOpen] = useState(false);
+  const [cameraPreviewStepId, setCameraPreviewStepId] = useState(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantVisited, setAssistantVisited] = useState(false);
   const [agentUndoAvailable, setAgentUndoAvailable] = useState(false);
@@ -2062,6 +1868,11 @@ function App() {
     () => getStorySteps(editorView.elements, storyPath),
     [editorView.elements, storyPath],
   );
+  const editorStoryFrame = useMemo(
+    () => storyFrameForElements(editorView.elements),
+    [editorView.elements],
+  );
+  const cameraPreviewStep = editorStorySteps.find((step) => step.id === cameraPreviewStepId) ?? null;
   const selectedStoryElementIds = useMemo(
     () => Object.keys(editorView.appState.selectedElementIds ?? {}).filter((id) =>
       editorView.elements.some((element) => element.id === id && !element.isDeleted),
@@ -2633,54 +2444,24 @@ function App() {
     commitStoryPath(path);
   }, [commitStoryPath]);
 
-  const captureStoryCamera = useCallback((stepId) => {
-    const appState = excalidrawAPI?.getAppState() ?? editorView.appState;
-    const topLeft = viewportCoordsToSceneCoords({
-      clientX: appState.offsetLeft ?? 0,
-      clientY: appState.offsetTop ?? 0,
-    }, appState);
-    const bottomRight = viewportCoordsToSceneCoords({
-      clientX: appState.width ?? window.innerWidth,
-      clientY: appState.height ?? window.innerHeight,
-    }, appState);
-    updateStoryStep(stepId, {
-      camera: {
-        x: topLeft.x,
-        y: topLeft.y,
-        width: Math.max(1, bottomRight.x - topLeft.x),
-        height: Math.max(1, bottomRight.y - topLeft.y),
-      },
-    });
-  }, [editorView.appState, excalidrawAPI, updateStoryStep]);
-
   const setStoryCameraPreset = useCallback((stepId, preset) => {
     const elements = latestScene.current.elements;
     const frame = storyFrameForElements(elements);
-    if (preset === "overview") {
-      updateStoryStep(stepId, { camera: frame });
-      return;
-    }
     const step = getStorySteps(elements, latestScene.current.storyPath)
       .find((entry) => entry.id === stepId);
     if (!step) return;
+    const camera = getStoryViewBox(
+      frame,
+      { x: step.x, y: step.y, width: step.width, height: step.height },
+      3.2,
+      64,
+    );
+    const shot = createStoryCameraShot(camera, preset);
     updateStoryStep(stepId, {
-      camera: getStoryViewBox(
-        frame,
-        { x: step.x, y: step.y, width: step.width, height: step.height },
-        3.2,
-        64,
-      ),
-    });
-  }, [updateStoryStep]);
-
-  const adjustStoryCamera = useCallback((stepId, adjustment) => {
-    const step = getStorySteps(
-      latestScene.current.elements,
-      latestScene.current.storyPath,
-    ).find((entry) => entry.id === stepId);
-    if (!step?.storyCamera) return;
-    updateStoryStep(stepId, {
-      camera: transformStoryCamera(step.storyCamera, adjustment),
+      camera: shot.end,
+      cameraStart: shot.start,
+      cameraDuration: shot.duration,
+      cameraPreset: preset,
     });
   }, [updateStoryStep]);
 
@@ -3012,18 +2793,30 @@ function App() {
       )}
       {!isShared && preview && renderCanvasControls()}
 
-      {!preview && pathEditorOpen && (
-        <StoryPathEditor
+      {!preview && pathEditorOpen && !cameraPreviewStep && (
+        <StoryPathPanel
+          frame={editorStoryFrame}
+          getElementLabel={storyElementLabel}
+          getStepLabel={storyStepLabel}
           steps={editorStorySteps}
+          scene={latestScene.current}
           selectedCount={selectedStoryElementIds.length}
           onAdd={addStoryStep}
-          onAdjustCamera={adjustStoryCamera}
-          onCaptureCamera={captureStoryCamera}
           onClose={closePathEditor}
           onMove={moveStoryStep}
+          onPreviewCamera={setCameraPreviewStepId}
           onRemove={removeStoryStep}
           onSetCameraPreset={setStoryCameraPreset}
           onUpdate={updateStoryStep}
+        />
+      )}
+
+      {!preview && cameraPreviewStep && (
+        <CameraPreviewOverlay
+          frame={editorStoryFrame}
+          onClose={() => setCameraPreviewStepId(null)}
+          scene={latestScene.current}
+          step={cameraPreviewStep}
         />
       )}
 

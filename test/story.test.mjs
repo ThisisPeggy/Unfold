@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   STORY_ICON_KINDS,
+  createStoryCameraShot,
   createGeneratedLecture,
   editorLinkSignature,
   getStoryFrame,
@@ -11,6 +12,7 @@ import {
   getStoryStepMarkerOffsets,
   getStorySteps,
   getStoryViewBox,
+  interpolateStoryCameraShot,
   interpolateStoryViewBox,
   makeStoryPath,
   mergeHermesStoryPath,
@@ -83,6 +85,20 @@ test("pans and zooms a saved story camera", () => {
     transformStoryCamera(camera, { panX: 0.125 }),
     { x: 150, y: 50, width: 400, height: 200 },
   );
+  assert.deepEqual(
+    transformStoryCamera(camera, { zoom: 0.5, anchorX: 0.25, anchorY: 0.75 }),
+    { x: 150, y: 125, width: 200, height: 100 },
+  );
+});
+
+test("builds and interpolates a planned camera shot", () => {
+  const camera = { x: 100, y: 50, width: 400, height: 200 };
+  const shot = createStoryCameraShot(camera, "pan-right");
+  assert.equal(shot.duration, 3000);
+  assert.equal(shot.start.width, shot.end.width);
+  assert.ok(shot.start.x < shot.end.x);
+  assert.deepEqual(interpolateStoryCameraShot(shot.start, shot.end, 0), shot.start);
+  assert.deepEqual(interpolateStoryCameraShot(shot.start, shot.end, 1), shot.end);
 });
 
 test("chooses a doodle and places it beside linked elements", () => {
@@ -154,6 +170,9 @@ test("chooses a doodle and places it beside linked elements", () => {
     title: "从全球市场开始",
     note: "地图把客户分布、可联系时间与市场数据放在同一个工作台里。",
     camera: { x: 10, y: 20, width: 640, height: 360 },
+    cameraStart: { x: 0, y: 20, width: 640, height: 360 },
+    cameraDuration: 5000,
+    cameraPreset: "pan-right",
   }];
   const customerMapElements = [
     { id: "a", type: "rectangle", x: 0, y: 0, width: 20, height: 20 },

@@ -315,12 +315,17 @@ function resolveStoryStep(entry, elementsById) {
   const top = Math.min(...members.map((element) => element.y));
   const right = Math.max(...members.map((element) => element.x + element.width));
   const bottom = Math.max(...members.map((element) => element.y + element.height));
-  const camera = entry?.camera;
-  const storyCamera = camera &&
+  const validCamera = (camera) => camera &&
     [camera.x, camera.y, camera.width, camera.height].every(Number.isFinite) &&
-    camera.width > 0 && camera.height > 0
-    ? camera
-    : null;
+    camera.width > 0 && camera.height > 0;
+  const storyCamera = validCamera(entry?.camera) ? entry.camera : null;
+  const storyCameraStart = validCamera(entry?.cameraStart) ? entry.cameraStart : null;
+  const storyCameraDuration = Number.isFinite(entry?.cameraDuration)
+    ? Math.max(500, Math.min(10_000, entry.cameraDuration))
+    : 3000;
+  const storyCameraPreset = [
+    "still", "zoom-in", "zoom-out", "pan-right", "pan-left", "custom",
+  ].includes(entry?.cameraPreset) ? entry.cameraPreset : "";
   return {
     ...representative,
     id: typeof entry.id === "string" ? entry.id : representative.id,
@@ -336,6 +341,9 @@ function resolveStoryStep(entry, elementsById) {
     storyTitle: typeof entry.title === "string" ? entry.title : "",
     storyNote: typeof entry.note === "string" ? entry.note : "",
     storyCamera,
+    storyCameraStart,
+    storyCameraDuration,
+    storyCameraPreset,
     storyElementIds: members.map((element) => element.id),
   };
 }
@@ -435,15 +443,66 @@ export function interpolateStoryViewBox(from, to, progress) {
   };
 }
 
-export function transformStoryCamera(camera, { panX = 0, panY = 0, zoom = 1 }) {
+export function interpolateStoryCameraShot(from, to, progress) {
+  const clamped = Math.max(0, Math.min(1, progress));
+  const amount = clamped * clamped * (3 - 2 * clamped);
+  return {
+    x: from.x + (to.x - from.x) * amount,
+    y: from.y + (to.y - from.y) * amount,
+    width: from.width + (to.width - from.width) * amount,
+    height: from.height + (to.height - from.height) * amount,
+  };
+}
+
+export function transformStoryCamera(camera, {
+  panX = 0,
+  panY = 0,
+  zoom = 1,
+  anchorX = 0.5,
+  anchorY = 0.5,
+}) {
   const width = Math.max(1, camera.width * zoom);
   const height = Math.max(1, camera.height * zoom);
   return {
-    x: camera.x + camera.width * panX + (camera.width - width) / 2,
-    y: camera.y + camera.height * panY + (camera.height - height) / 2,
+    x: camera.x + camera.width * panX + (camera.width - width) * anchorX,
+    y: camera.y + camera.height * panY + (camera.height - height) * anchorY,
     width,
     height,
   };
+}
+
+export function createStoryCameraShot(camera, preset) {
+  if (preset === "still") return { start: camera, end: camera, duration: 3000 };
+  if (preset === "zoom-in") {
+    return {
+      start: transformStoryCamera(camera, { zoom: 1.35 }),
+      end: camera,
+      duration: 3000,
+    };
+  }
+  if (preset === "zoom-out") {
+    return {
+      start: camera,
+      end: transformStoryCamera(camera, { zoom: 1.35 }),
+      duration: 3000,
+    };
+  }
+  const scan = transformStoryCamera(camera, { zoom: 0.72 });
+  if (preset === "pan-right") {
+    return {
+      start: transformStoryCamera(scan, { panX: -0.22 }),
+      end: transformStoryCamera(scan, { panX: 0.22 }),
+      duration: 3000,
+    };
+  }
+  if (preset === "pan-left") {
+    return {
+      start: transformStoryCamera(scan, { panX: 0.22 }),
+      end: transformStoryCamera(scan, { panX: -0.22 }),
+      duration: 3000,
+    };
+  }
+  return { start: camera, end: camera, duration: 3000 };
 }
 
 export function makeStoryPath(elements, storyPath) {
@@ -455,6 +514,9 @@ export function makeStoryPath(elements, storyPath) {
     if (step.storyTitle) entry.title = step.storyTitle;
     if (step.storyNote) entry.note = step.storyNote;
     if (step.storyCamera) entry.camera = step.storyCamera;
+    if (step.storyCameraStart) entry.cameraStart = step.storyCameraStart;
+    if (step.storyCameraDuration !== 3000) entry.cameraDuration = step.storyCameraDuration;
+    if (step.storyCameraPreset) entry.cameraPreset = step.storyCameraPreset;
     return entry;
   });
 }
@@ -484,6 +546,9 @@ export function mergeHermesStoryPath(
       title: step.title,
       ...(step.note ? { note: step.note } : {}),
       ...(previous?.camera ? { camera: previous.camera } : {}),
+      ...(previous?.cameraStart ? { cameraStart: previous.cameraStart } : {}),
+      ...(previous?.cameraDuration ? { cameraDuration: previous.cameraDuration } : {}),
+      ...(previous?.cameraPreset ? { cameraPreset: previous.cameraPreset } : {}),
     };
   });
   if (!scopeElementIds.length) return generated;
