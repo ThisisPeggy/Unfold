@@ -39,7 +39,7 @@ export default function StoryPathEditor({
   const [editingStepId, setEditingStepId] = useState(null);
   const [tab, setTab] = useState("content");
   const [replayKey, setReplayKey] = useState(0);
-  const [cameraEndpoint, setCameraEndpoint] = useState("end");
+  const [cameraEndpoint, setCameraEndpoint] = useState("start");
   const [cameraPreviewing, setCameraPreviewing] = useState(false);
   const [menu, setMenu] = useState(null);
   const listRef = useRef(null);
@@ -98,7 +98,7 @@ export default function StoryPathEditor({
   const openStep = (stepId) => {
     setEditingStepId(stepId);
     setTab("camera");
-    setCameraEndpoint("end");
+    setCameraEndpoint("start");
     setCameraPreviewing(false);
   };
 
@@ -207,15 +207,60 @@ export default function StoryPathEditor({
                   scene={scene}
                   start={cameraStart}
                 />
-                <span className="story-camera-editing-badge">编辑{cameraEndpoint === "start" ? "起点 A" : "终点 B"}</span>
-                <button type="button" className="story-camera-replay" onClick={previewCamera}>↻ 预览</button>
+                <span className="story-camera-editing-badge">
+                  {cameraPreviewing
+                    ? "正在预览 A → B"
+                    : `${cameraEndpoint === "start" ? "第 1 步" : "第 2 步"} · ${cameraEndpoint === "start" ? "起始画面" : "结束画面"}`}
+                </span>
               </div>
 
-              <section className="story-camera-section">
+              <section className="story-camera-section story-camera-workflow">
                 <div className="story-camera-section__heading">
-                  <strong>镜头方式</strong>
-                  <span>选择后会立即预览</span>
+                  <strong>{cameraEndpoint === "start" ? "1. 调整起始画面" : "2. 调整结束画面"}</strong>
+                  <span>在上方拖动，滚轮缩放</span>
                 </div>
+                <div className="story-camera-capture" role="group" aria-label="镜头设置步骤">
+                  <button
+                    type="button"
+                    className={cameraEndpoint === "start" ? "is-active" : ""}
+                    aria-pressed={cameraEndpoint === "start"}
+                    onClick={() => {
+                      setCameraEndpoint("start");
+                      setCameraPreviewing(false);
+                    }}
+                  >
+                    ① 起始画面
+                  </button>
+                  <button
+                    type="button"
+                    className={cameraEndpoint === "end" ? "is-active" : ""}
+                    aria-pressed={cameraEndpoint === "end"}
+                    onClick={() => {
+                      setCameraEndpoint("end");
+                      setCameraPreviewing(false);
+                    }}
+                  >
+                    ② 结束画面
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="story-camera-next"
+                  onClick={() => {
+                    if (cameraEndpoint === "start") {
+                      setCameraEndpoint("end");
+                      setCameraPreviewing(false);
+                    } else {
+                      previewCamera();
+                    }
+                  }}
+                >
+                  {cameraEndpoint === "start" ? "下一步：调整结束画面 →" : "▶ 预览 A → B"}
+                </button>
+              </section>
+
+              <details className="story-camera-quick">
+                <summary>快速效果（可选）</summary>
                 <div className="story-camera-presets">
                   <button
                     type="button"
@@ -249,38 +294,7 @@ export default function StoryPathEditor({
                     </button>
                   ))}
                 </div>
-              </section>
-
-              <section className="story-camera-section">
-                <div className="story-camera-section__heading">
-                  <strong>自定义取景</strong>
-                  <span>拖动平移 · 滚轮或双指缩放</span>
-                </div>
-                <div className="story-camera-capture" role="group" aria-label="选择要编辑的镜头画面">
-                  <button
-                    type="button"
-                    className={cameraEndpoint === "start" ? "is-active" : ""}
-                    aria-pressed={cameraEndpoint === "start"}
-                    onClick={() => {
-                      setCameraEndpoint("start");
-                      setCameraPreviewing(false);
-                    }}
-                  >
-                    编辑起点 A
-                  </button>
-                  <button
-                    type="button"
-                    className={cameraEndpoint === "end" ? "is-active" : ""}
-                    aria-pressed={cameraEndpoint === "end"}
-                    onClick={() => {
-                      setCameraEndpoint("end");
-                      setCameraPreviewing(false);
-                    }}
-                  >
-                    编辑终点 B
-                  </button>
-                </div>
-              </section>
+              </details>
 
               {editingStep.storyCameraStart && (
                 <section className="story-camera-section">
@@ -306,7 +320,7 @@ export default function StoryPathEditor({
 
         <footer className="story-path-detail-footer">
           {tab === "camera" && (
-            <button type="button" className="story-camera-full-preview" onClick={() => onPreviewCamera(editingStep.id)}>▶ 在画布中预览</button>
+            <button type="button" className="story-camera-full-preview" onClick={() => onPreviewCamera(editingStep.id)}>全屏预览</button>
           )}
           <button type="button" onClick={() => setEditingStepId(null)}>完成</button>
         </footer>
