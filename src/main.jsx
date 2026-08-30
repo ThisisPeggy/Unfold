@@ -88,6 +88,14 @@ const CLEAR_CANVAS_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform)
   ? "⌘⌫"
   : "Ctrl+Del";
 
+function validateEmbeddedWebsite(link) {
+  try {
+    return new URL(link).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function storyPaddingForElements(elements) {
   return Math.max(
     STORY_PADDING,
@@ -1772,6 +1780,45 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
+function WorkThumbnail({ scene }) {
+  const [artwork, setArtwork] = useState(null);
+
+  useEffect(() => {
+    const elements = scene?.elements?.filter((element) => !element.isDeleted) ?? [];
+    if (!elements.length) {
+      setArtwork(null);
+      return undefined;
+    }
+    let disposed = false;
+    exportToSvg({
+      elements,
+      appState: { ...scene.appState, exportBackground: true },
+      files: scene.files ?? {},
+      exportPadding: 24,
+    }).then((svg) => {
+      if (!disposed) setArtwork(readStoryArtwork(svg));
+    }).catch(() => {
+      if (!disposed) setArtwork(null);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [scene]);
+
+  if (!scene?.elements?.some((element) => !element.isDeleted)) {
+    return <em>空白作品</em>;
+  }
+  if (!artwork) return <em>正在生成预览…</em>;
+  return (
+    <svg
+      viewBox={artwork.viewBox}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: artwork.markup }}
+    />
+  );
+}
+
 function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onOpen, onRename, works }) {
   return (
     <section className="works-library" aria-labelledby="works-library-title">
@@ -1793,19 +1840,7 @@ function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onOpen, onRena
           >
             <button className="work-card__preview" onClick={() => onOpen(work.id)} type="button">
               <span className="work-card__paper">
-                {(work.scene?.elements ?? [])
-                  .filter((element) => element.type === "text" && !element.isDeleted && element.text?.trim())
-                  .slice(0, 3)
-                  .map((element) => <span key={element.id}>{element.text.trim()}</span>)}
-                {!work.scene?.elements?.some((element) =>
-                  element.type === "text" && !element.isDeleted && element.text?.trim(),
-                ) && (
-                  <em>
-                    {work.scene?.elements?.filter((element) => !element.isDeleted).length
-                      ? `${work.scene.elements.filter((element) => !element.isDeleted).length} 个画布元素`
-                      : "空白作品"}
-                  </em>
-                )}
+                <WorkThumbnail scene={work.scene} />
               </span>
             </button>
             <div className="work-card__meta">
@@ -3001,23 +3036,6 @@ function App() {
       role="group"
       aria-label={preview ? "讲解操作" : "画板操作"}
     >
-      {!isShared && (
-        <button
-          className="control-button control-button--works"
-          type="button"
-          title="返回作品库"
-          aria-label="返回作品库"
-          onClick={() => {
-            setLinkEditorId(null);
-            setPathEditorOpen(false);
-            setAssistantOpen(false);
-            setWorksOpen(true);
-          }}
-        >
-          <span aria-hidden="true">←</span>
-          <span className="control-button__label control-button__label--keep">作品库</span>
-        </button>
-      )}
       {!preview && (
         <span className={`save-state save-state--${saveState}`} role="status">
           <span className="save-state__dot" aria-hidden="true" />
@@ -3198,6 +3216,7 @@ function App() {
           onChange={save}
           onPointerDown={captureHighlighterPointerUp}
           onPointerUp={snapHighlighterToText}
+          validateEmbeddable={validateEmbeddedWebsite}
           renderTopRightUI={() => renderCanvasControls(true)}
           UIOptions={{
             canvasActions: {
@@ -3211,6 +3230,30 @@ function App() {
         >
         <MainMenu>
           <MainMenu.Group>
+            <MainMenu.Item
+              icon={(
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <rect x="4" y="4" width="6" height="6" rx="1" />
+                  <rect x="14" y="4" width="6" height="6" rx="1" />
+                  <rect x="4" y="14" width="6" height="6" rx="1" />
+                  <rect x="14" y="14" width="6" height="6" rx="1" />
+                </svg>
+              )}
+              onSelect={() => {
+                setLinkEditorId(null);
+                setPathEditorOpen(false);
+                setAssistantOpen(false);
+                setWorksOpen(true);
+              }}
+            >
+              我的作品
+            </MainMenu.Item>
             <MainMenu.Item
               icon={(
                 <svg

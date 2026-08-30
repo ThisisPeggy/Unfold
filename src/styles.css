@@ -3091,7 +3091,7 @@ body,
     white-space: nowrap;
   }
 
-  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--works, .control-button--preview, .control-button--publish) {
+  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--preview, .control-button--publish) {
     width: 32px;
     justify-content: center;
     padding: 0;
@@ -3489,25 +3489,19 @@ body,
 }
 
 .work-card__paper {
-  display: flex;
+  display: grid;
   height: 100%;
-  flex-direction: column;
-  gap: 8px;
+  place-items: center;
   overflow: hidden;
-  padding: 22px;
+  padding: 12px;
   color: #4a4843;
   background: #fff;
   box-shadow: 0 0 0 1px oklch(0 0 0 / 10%), 0 4px 12px rgb(15 15 15 / 8%);
-  font-size: 13px;
-  line-height: 1.45;
-  text-align: left;
 }
 
-.work-card__paper > span {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.work-card__paper > svg {
+  width: 100%;
+  height: 100%;
 }
 
 .work-card__paper em {
