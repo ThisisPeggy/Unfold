@@ -212,6 +212,27 @@ const patches = [
     'false && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Island, {',
   ],
   [
+    `        actionAddToLibrary,
+        CONTEXT_MENU_SEPARATOR,
+`,
+    ``,
+  ],
+  [
+    `				actionAddToLibrary,
+				CONTEXT_MENU_SEPARATOR,
+`,
+    ``,
+  ],
+  [
+    'const type = element || isHittingCommonBoundBox ? "element" : "canvas";',
+    'const type = element || isHittingCommonBoundBox || selectedElements.length ? "element" : "canvas";',
+  ],
+  [
+    's=i||l?"element":"canvas"',
+    's=i||l||a.length?"element":"canvas"',
+  ],
+  [',$p,$e,jp,$e,up,gp,hp,fp,', ',$p,$e,up,gp,hp,fp,'],
+  [
     `var DEFAULT_ELEMENT_STROKE_PICKS = [
   COLOR_PALETTE.black,
   COLOR_PALETTE.red[DEFAULT_ELEMENT_STROKE_COLOR_INDEX],
@@ -456,6 +477,19 @@ const laserRemovedVerified = files.filter((file) => {
     !source.includes('data-testid="toolbar-laser"') &&
     !source.includes('data-testid:`toolbar-laser`');
 }).length;
+const libraryActionRemovedVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  const containsLibraryAction = source.includes('label: "labels.addToLibrary"') ||
+    source.includes('label:"labels.addToLibrary"');
+  return containsLibraryAction &&
+    !source.includes("actionAddToLibrary,\n") &&
+    !source.includes(',$p,$e,jp,$e,up,gp,hp,fp,');
+}).length;
+const selectionMenuVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes('isHittingCommonBoundBox || selectedElements.length') ||
+    source.includes('s=i||l||a.length?"element":"canvas"');
+}).length;
 
 // Verification - require at least 1 instance of each critical patch
 const minRequired = {
@@ -470,6 +504,8 @@ const minRequired = {
   authoredPalette: 2,
   propertyIcons: 2,
   laserRemoved: 2,
+  libraryActionRemoved: 2,
+  selectionMenu: 2,
 };
 
 const verificationResults = {
@@ -484,6 +520,8 @@ const verificationResults = {
   authoredPalette: authoredPaletteVerified,
   propertyIcons: propertyIconsVerified,
   laserRemoved: laserRemovedVerified,
+  libraryActionRemoved: libraryActionRemovedVerified,
+  selectionMenu: selectionMenuVerified,
 };
 
 const failures = Object.entries(minRequired).filter(

@@ -20,6 +20,7 @@ import "./styles.css";
 import AssistantMascot from "./AssistantMascot.jsx";
 import StoryCameraPreview from "./StoryCameraPreview.jsx";
 import StoryPathPanel from "./StoryPathEditor.jsx";
+import { installContextMenuOrganizer } from "./context-menu.js";
 import {
   decodeScene,
   encodeScene,
@@ -1873,6 +1874,22 @@ function App() {
     [editorView.elements],
   );
   const cameraPreviewStep = editorStorySteps.find((step) => step.id === cameraPreviewStepId) ?? null;
+
+  useEffect(() => installContextMenuOrganizer(document.querySelector(".canvas-app"), () => {
+    const appState = excalidrawAPI?.getAppState();
+    const selected = excalidrawAPI?.getSceneElements().filter((element) =>
+      !element.isDeleted && appState?.selectedElementIds?.[element.id],
+    );
+    if (!appState || !selected?.length) return null;
+    const [x1, y1, x2] = getCommonBounds(selected);
+    const zoom = appState.zoom.value;
+    return {
+      left: (x2 + appState.scrollX) * zoom,
+      fallbackLeft: (x1 + appState.scrollX) * zoom,
+      top: (y1 + appState.scrollY) * zoom,
+      viewport: { width: appState.width, height: appState.height },
+    };
+  }), [excalidrawAPI]);
   const selectedStoryElementIds = useMemo(
     () => Object.keys(editorView.appState.selectedElementIds ?? {}).filter((id) =>
       editorView.elements.some((element) => element.id === id && !element.isDeleted),

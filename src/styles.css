@@ -2162,6 +2162,87 @@ body,
   border-radius: 6px;
 }
 
+.excalidraw .context-menu {
+  min-width: 240px;
+  margin: 2px;
+  padding: 4px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--tale-ink);
+  background: var(--tale-surface);
+  box-shadow: var(--tale-shadow);
+}
+
+.excalidraw .context-menu-item {
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: var(--tale-ink);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.excalidraw .context-menu-item .context-menu-item__label {
+  margin-inline-end: 20px;
+}
+
+.excalidraw .context-menu-item .context-menu-item__shortcut {
+  color: var(--tale-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+
+.excalidraw .context-menu-item:hover,
+.excalidraw .context-menu-item:focus-visible {
+  color: var(--tale-ink);
+  background: var(--tale-surface-hover);
+  outline: 0;
+}
+
+.excalidraw .context-menu-item:hover.dangerous {
+  background: rgb(212 76 71 / 10%);
+}
+
+.excalidraw .context-menu-item:hover.dangerous .context-menu-item__label {
+  color: var(--tale-danger);
+}
+
+.excalidraw .context-menu-item-separator {
+  margin: 4px -4px;
+  border-top-color: var(--tale-line);
+}
+
+.excalidraw .context-menu-more-row {
+  position: relative;
+}
+
+.excalidraw .context-menu-more {
+  position: absolute;
+  z-index: 1;
+  right: auto;
+  bottom: -4px;
+  left: calc(100% + 6px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.excalidraw .context-menu-more[hidden] {
+  display: none;
+}
+
+.excalidraw .context-menu-more-row--left .context-menu-more {
+  right: calc(100% + 6px);
+  left: auto;
+}
+
+.excalidraw .context-menu-more-row--left
+  > .context-menu-item
+  .context-menu-item__shortcut {
+  transform: rotate(180deg);
+}
+
 .excalidraw [data-testid="main-menu-trigger"] + [data-testid="dropdown-menu"]
   .dropdown-menu-item:active {
   transform: scale(0.96);
