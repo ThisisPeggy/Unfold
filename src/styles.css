@@ -3559,7 +3559,8 @@ body,
   line-height: 1.5;
 }
 
-.supabase-sync-dialog__error {
+.supabase-sync-dialog__error,
+.supabase-sync-dialog__notice {
   font-size: 12px;
 }
 
@@ -3567,8 +3568,57 @@ body,
   color: var(--tale-danger);
 }
 
+.supabase-sync-dialog .supabase-sync-dialog__notice {
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #448361;
+  background: #edf3ec;
+}
+
 .supabase-sync-dialog .unfold-dialog__actions {
   margin-top: 4px;
+}
+
+.supabase-sync-dialog__account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 20px 20px;
+  padding: 12px;
+  border: 1px solid rgb(55 53 47 / 12%);
+  border-radius: 8px;
+}
+
+.supabase-sync-dialog__account span,
+.supabase-sync-dialog__account strong {
+  display: block;
+}
+
+.supabase-sync-dialog__account span {
+  margin-bottom: 3px;
+  color: var(--tale-muted);
+  font-size: 11px;
+}
+
+.supabase-sync-dialog__account strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.supabase-sync-dialog__account button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tale-ink);
+  background: var(--tale-surface-hover);
+  font: 500 12px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.supabase-sync-dialog__account button:active {
+  transform: scale(0.96);
 }
 
 @media (max-width: 560px) {

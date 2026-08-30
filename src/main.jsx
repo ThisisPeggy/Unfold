@@ -47,9 +47,15 @@ import {
   pullSupabaseWorkspace,
   pushSupabaseWorkspace,
   readSupabaseConfig,
+  readSupabaseSession,
+  refreshSupabaseSession,
+  signInSupabase,
+  signUpSupabase,
   SUPABASE_CONFIG_STORAGE_KEY,
+  SUPABASE_SESSION_STORAGE_KEY,
   SUPABASE_SETUP_SQL,
   writeSupabaseConfig,
+  writeSupabaseSession,
 } from "./supabase-sync.js";
 import { missingArrowhead } from "./tool-state.js";
 import {
@@ -1792,19 +1798,24 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
-function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }) {
+function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect, status }) {
   const [url, setUrl] = useState(config?.url ?? "");
   const [key, setKey] = useState(config?.key ?? "");
+  const [email, setEmail] = useState(session?.user?.email ?? "");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const connect = async (event) => {
+  const connect = async (event, mode = "signin") => {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      await onConnect({ url, key });
+      const result = await onConnect({ url, key, email, password, mode });
+      if (result?.pending) setNotice("注册成功。请先查收验证邮件，然后回来登录。");
     } catch (connectionError) {
       setError(connectionError.message || "连接失败，请检查配置。");
     } finally {
@@ -1827,9 +1838,9 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
       <div className="supabase-sync-dialog__hero">
         <div>
           <h3>连接你的 Supabase</h3>
-          <p>作品会保存在你自己的项目中，无需注册 Unfold。</p>
+          <p>本地使用无需登录；登录仅用于开启云同步。</p>
         </div>
-        {config && (
+        {session && (
           <span className={`supabase-sync-dialog__badge supabase-sync-dialog__badge--${status}`}>
             <i aria-hidden="true" />
             {status === "syncing" ? "同步中" : status === "error" ? "连接异常" : "已连接"}
@@ -1837,7 +1848,7 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
         )}
       </div>
 
-      <div className="supabase-sync-dialog__setup">
+      {!session && <div className="supabase-sync-dialog__setup">
         <section>
           <span className="supabase-sync-dialog__step">1</span>
           <div>
@@ -1859,12 +1870,12 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
             {copied ? "已复制" : "复制 SQL"}
           </button>
         </section>
-      </div>
+      </div>}
 
-      <form onSubmit={connect}>
+      {!session ? <form onSubmit={connect}>
         <div className="supabase-sync-dialog__form-heading">
-          <strong>连接项目</strong>
-          <p>在 Supabase 的 Connect 面板中找到以下两项。</p>
+          <strong>登录并连接</strong>
+          <p>项目配置只需填写一次，账号仅用于云同步。</p>
         </div>
         <label>
           <span>Project URL</span>
@@ -1888,15 +1899,47 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
             value={key}
           />
         </label>
-        <small>仅保存在当前浏览器。请勿填写 Secret Key 或 Service Role Key。</small>
+        <label>
+          <span>邮箱</span>
+          <input
+            autoComplete="email"
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            type="email"
+            value={email}
+          />
+        </label>
+        <label>
+          <span>密码</span>
+          <input
+            autoComplete="current-password"
+            minLength="6"
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+        </label>
+        <small>登录信息仅保存在当前浏览器。请勿填写 Secret Key 或 Service Role Key。</small>
+        {notice && <p className="supabase-sync-dialog__notice" role="status">{notice}</p>}
         {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
         <div className="unfold-dialog__actions">
-          {config && <button onClick={onDisconnect} type="button">断开连接</button>}
+          <button disabled={busy} onClick={(event) => connect(event, "signup")} type="button">
+            创建账号
+          </button>
           <button className="unfold-dialog__primary" disabled={busy} type="submit">
-            {busy ? "正在验证连接…" : config ? "更新连接" : "连接并开始同步"}
+            {busy ? "正在验证…" : "登录并开始同步"}
           </button>
         </div>
-      </form>
+      </form> : (
+        <div className="supabase-sync-dialog__account">
+          <div>
+            <span>当前账号</span>
+            <strong>{session.user.email}</strong>
+          </div>
+          <button onClick={onDisconnect} type="button">退出并断开同步</button>
+        </div>
+      )}
     </UnfoldDialog>
   );
 }
@@ -2087,6 +2130,9 @@ function App() {
   const [supabaseConfig, setSupabaseConfig] = useState(
     () => isShared ? null : readSupabaseConfig(localStorage),
   );
+  const [supabaseSession, setSupabaseSession] = useState(
+    () => isShared ? null : readSupabaseSession(localStorage),
+  );
   const [supabaseState, setSupabaseState] = useState("idle");
   const [worksOpen, setWorksOpen] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -2101,6 +2147,7 @@ function App() {
   const supabaseTimer = useRef();
   const supabaseQueue = useRef(Promise.resolve());
   const supabaseReady = useRef(false);
+  const supabaseSessionRef = useRef(supabaseSession);
   const saveRevision = useRef(0);
   const cloudSave = useRef(Promise.resolve());
   const activeWorkId = useRef(workspace.activeWorkId);
@@ -2237,10 +2284,24 @@ function App() {
     openWork(snapshot.activeWorkId, true);
   }, [openWork]);
 
+  const ensureSupabaseSession = useCallback(async (config) => {
+    const current = supabaseSessionRef.current;
+    if (!current) throw new Error("请先登录 Supabase。");
+    if (current.expiresAt > Date.now() + 60_000) return current;
+    const refreshed = await refreshSupabaseSession(config, current);
+    if (!writeSupabaseSession(localStorage, refreshed)) {
+      throw new Error("无法在浏览器中保存登录状态。");
+    }
+    supabaseSessionRef.current = refreshed;
+    setSupabaseSession(refreshed);
+    return refreshed;
+  }, []);
+
   const syncExistingSupabase = useCallback(async (config) => {
     setSupabaseState("syncing");
     try {
-      const cloud = await pullSupabaseWorkspace(config);
+      const auth = await ensureSupabaseSession(config);
+      const cloud = await pullSupabaseWorkspace(config, auth);
       const local = createWorkspaceSnapshot(
         localStorage,
         worksRef.current,
@@ -2251,10 +2312,10 @@ function App() {
         if (!snapshot) throw new Error("云端作品数据格式无效。");
         if (snapshot.updatedAt > local.updatedAt) applyCloudWorkspace(snapshot);
         else if (snapshot.updatedAt < local.updatedAt) {
-          await pushSupabaseWorkspace(config, local);
+          await pushSupabaseWorkspace(config, auth, local);
         }
       } else {
-        await pushSupabaseWorkspace(config, local);
+        await pushSupabaseWorkspace(config, auth, local);
       }
       supabaseReady.current = true;
       setSupabaseState("connected");
@@ -2263,13 +2324,23 @@ function App() {
       setSupabaseState("error");
       throw error;
     }
-  }, [applyCloudWorkspace]);
+  }, [applyCloudWorkspace, ensureSupabaseSession]);
 
   const connectSupabase = useCallback(async (settings) => {
     const config = normalizeSupabaseConfig(settings);
     setSupabaseState("syncing");
     try {
-      const cloud = await pullSupabaseWorkspace(config);
+      const authResult = settings.mode === "signup"
+        ? await signUpSupabase(config, settings.email, settings.password)
+        : { session: await signInSupabase(config, settings.email, settings.password) };
+      if (!authResult.session) {
+        writeSupabaseConfig(localStorage, config);
+        setSupabaseConfig(config);
+        setSupabaseState("idle");
+        return { pending: true };
+      }
+      const auth = authResult.session;
+      const cloud = await pullSupabaseWorkspace(config, auth);
       const local = createWorkspaceSnapshot(
         localStorage,
         worksRef.current,
@@ -2282,16 +2353,22 @@ function App() {
           "云端已有作品。\n\n确定：下载云端作品并替换本地作品库\n取消：保留本地作品并上传到云端",
         );
         if (useCloud) applyCloudWorkspace(snapshot);
-        else await pushSupabaseWorkspace(config, local);
+        else await pushSupabaseWorkspace(config, auth, local);
       } else {
-        await pushSupabaseWorkspace(config, local);
+        await pushSupabaseWorkspace(config, auth, local);
       }
-      if (!writeSupabaseConfig(localStorage, config)) {
-        throw new Error("无法在浏览器中保存 Supabase 配置。");
+      if (
+        !writeSupabaseConfig(localStorage, config) ||
+        !writeSupabaseSession(localStorage, auth)
+      ) {
+        throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
+      supabaseSessionRef.current = auth;
       supabaseReady.current = true;
       setSupabaseConfig(config);
+      setSupabaseSession(auth);
       setSupabaseState("connected");
+      return { pending: false };
     } catch (error) {
       supabaseReady.current = false;
       setSupabaseState("error");
@@ -2302,18 +2379,21 @@ function App() {
   const disconnectSupabase = useCallback(() => {
     window.clearTimeout(supabaseTimer.current);
     localStorage.removeItem(SUPABASE_CONFIG_STORAGE_KEY);
+    localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
     supabaseReady.current = false;
+    supabaseSessionRef.current = null;
     setSupabaseConfig(null);
+    setSupabaseSession(null);
     setSupabaseState("idle");
   }, []);
 
   useEffect(() => {
-    if (isShared || !supabaseConfig || supabaseReady.current) return;
+    if (isShared || !supabaseConfig || !supabaseSession || supabaseReady.current) return;
     syncExistingSupabase(supabaseConfig).catch(() => {});
-  }, [isShared, supabaseConfig, syncExistingSupabase]);
+  }, [isShared, supabaseConfig, supabaseSession, syncExistingSupabase]);
 
   useEffect(() => {
-    if (!supabaseConfig || !supabaseReady.current) return undefined;
+    if (!supabaseConfig || !supabaseSession || !supabaseReady.current) return undefined;
     window.clearTimeout(supabaseTimer.current);
     supabaseTimer.current = window.setTimeout(() => {
       const snapshot = createWorkspaceSnapshot(
@@ -2324,14 +2404,18 @@ function App() {
       setSupabaseState("syncing");
       supabaseQueue.current = supabaseQueue.current
         .catch(() => {})
-        .then(() => pushSupabaseWorkspace(supabaseConfig, snapshot));
+        .then(async () => pushSupabaseWorkspace(
+          supabaseConfig,
+          await ensureSupabaseSession(supabaseConfig),
+          snapshot,
+        ));
       supabaseQueue.current.then(
         () => setSupabaseState("connected"),
         () => setSupabaseState("error"),
       );
     }, 1200);
     return () => window.clearTimeout(supabaseTimer.current);
-  }, [supabaseConfig, works]);
+  }, [ensureSupabaseSession, supabaseConfig, supabaseSession, works]);
 
   const createWork = useCallback(() => {
     const suggestedName = `作品 ${works.length + 1}`;
@@ -3520,7 +3604,7 @@ function App() {
               )}
               onSelect={() => setSupabaseOpen(true)}
             >
-              {supabaseConfig
+              {supabaseConfig && supabaseSession
                 ? `云同步 · ${supabaseState === "error" ? "失败" : "已连接"}`
                 : "云同步"}
             </MainMenu.Item>
@@ -3664,6 +3748,7 @@ function App() {
       {!preview && supabaseOpen && (
         <SupabaseSyncDialog
           config={supabaseConfig}
+          session={supabaseSession}
           onClose={() => setSupabaseOpen(false)}
           onConnect={connectSupabase}
           onDisconnect={disconnectSupabase}
