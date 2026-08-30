@@ -1797,6 +1797,7 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
   const [key, setKey] = useState(config?.key ?? "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const connect = async (event) => {
     event.preventDefault();
@@ -1814,23 +1815,57 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
   const copySql = async () => {
     try {
       await navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
     } catch {
       window.prompt("复制这段 SQL", SUPABASE_SETUP_SQL);
     }
   };
 
   return (
-    <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title="Supabase 云同步">
-      <p>作品保存在你自己的 Supabase 项目中，不需要注册 Unfold。</p>
-      <ol>
-        <li>新建一个 Supabase 项目。</li>
-        <li>在 SQL Editor 运行建表 SQL。</li>
-        <li>从 Connect 中复制 Project URL 和 Publishable Key。</li>
-      </ol>
-      <button className="supabase-sync-dialog__sql" onClick={copySql} type="button">
-        复制建表 SQL
-      </button>
+    <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title="云同步">
+      <div className="supabase-sync-dialog__hero">
+        <div>
+          <h3>连接你的 Supabase</h3>
+          <p>作品会保存在你自己的项目中，无需注册 Unfold。</p>
+        </div>
+        {config && (
+          <span className={`supabase-sync-dialog__badge supabase-sync-dialog__badge--${status}`}>
+            <i aria-hidden="true" />
+            {status === "syncing" ? "同步中" : status === "error" ? "连接异常" : "已连接"}
+          </span>
+        )}
+      </div>
+
+      <div className="supabase-sync-dialog__setup">
+        <section>
+          <span className="supabase-sync-dialog__step">1</span>
+          <div>
+            <strong>创建项目</strong>
+            <p>在 Supabase 免费创建一个项目。</p>
+          </div>
+          <a href="https://supabase.com/dashboard" rel="noreferrer" target="_blank">
+            打开 Supabase <span aria-hidden="true">↗</span>
+          </a>
+        </section>
+        <section>
+          <span className="supabase-sync-dialog__step">2</span>
+          <div>
+            <strong>初始化数据库</strong>
+            <p>复制后粘贴到项目的 SQL Editor 运行。</p>
+          </div>
+          <button className="supabase-sync-dialog__sql" onClick={copySql} type="button">
+            <span aria-hidden="true">{copied ? "✓" : "⌘"}</span>
+            {copied ? "已复制" : "复制 SQL"}
+          </button>
+        </section>
+      </div>
+
       <form onSubmit={connect}>
+        <div className="supabase-sync-dialog__form-heading">
+          <strong>连接项目</strong>
+          <p>在 Supabase 的 Connect 面板中找到以下两项。</p>
+        </div>
         <label>
           <span>Project URL</span>
           <input
@@ -1853,20 +1888,15 @@ function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }
             value={key}
           />
         </label>
-        <small>不要填写 Secret Key 或 Service Role Key。</small>
+        <small>仅保存在当前浏览器。请勿填写 Secret Key 或 Service Role Key。</small>
         {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
         <div className="unfold-dialog__actions">
           {config && <button onClick={onDisconnect} type="button">断开连接</button>}
           <button className="unfold-dialog__primary" disabled={busy} type="submit">
-            {busy ? "连接中…" : config ? "重新连接" : "连接并同步"}
+            {busy ? "正在验证连接…" : config ? "更新连接" : "连接并开始同步"}
           </button>
         </div>
       </form>
-      {config && (
-        <p className={`supabase-sync-dialog__status supabase-sync-dialog__status--${status}`} role="status">
-          {status === "syncing" ? "正在同步…" : status === "error" ? "同步失败" : "已连接并自动同步"}
-        </p>
-      )}
     </UnfoldDialog>
   );
 }
