@@ -23,12 +23,14 @@ import StoryPathPanel from "./StoryPathEditor.jsx";
 import { installContextMenuOrganizer } from "./context-menu.js";
 import {
   ACTIVE_WORK_STORAGE_KEY,
+  createWorkspaceSnapshot,
   decodeScene,
   encodeScene,
   initializeWorkStorage,
   isSceneEditKey,
   isSceneId,
   parseUnfoldScene,
+  parseWorkspaceSnapshot,
   publicationKeyForWork,
   readPublication,
   readScene,
@@ -37,8 +39,18 @@ import {
   serializeUnfoldScene,
   writePublication,
   writeScene,
+  writeWorkspaceSnapshot,
   writeWorks,
 } from "./storage.js";
+import {
+  normalizeSupabaseConfig,
+  pullSupabaseWorkspace,
+  pushSupabaseWorkspace,
+  readSupabaseConfig,
+  SUPABASE_CONFIG_STORAGE_KEY,
+  SUPABASE_SETUP_SQL,
+  writeSupabaseConfig,
+} from "./supabase-sync.js";
 import { missingArrowhead } from "./tool-state.js";
 import {
   clearHermesConnection,
@@ -1780,6 +1792,85 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
+function SupabaseSyncDialog({ config, onClose, onConnect, onDisconnect, status }) {
+  const [url, setUrl] = useState(config?.url ?? "");
+  const [key, setKey] = useState(config?.key ?? "");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const connect = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await onConnect({ url, key });
+    } catch (connectionError) {
+      setError(connectionError.message || "连接失败，请检查配置。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copySql = async () => {
+    try {
+      await navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+    } catch {
+      window.prompt("复制这段 SQL", SUPABASE_SETUP_SQL);
+    }
+  };
+
+  return (
+    <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title="Supabase 云同步">
+      <p>作品保存在你自己的 Supabase 项目中，不需要注册 Unfold。</p>
+      <ol>
+        <li>新建一个 Supabase 项目。</li>
+        <li>在 SQL Editor 运行建表 SQL。</li>
+        <li>从 Connect 中复制 Project URL 和 Publishable Key。</li>
+      </ol>
+      <button className="supabase-sync-dialog__sql" onClick={copySql} type="button">
+        复制建表 SQL
+      </button>
+      <form onSubmit={connect}>
+        <label>
+          <span>Project URL</span>
+          <input
+            autoComplete="url"
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="https://xxxx.supabase.co"
+            required
+            type="url"
+            value={url}
+          />
+        </label>
+        <label>
+          <span>Publishable Key</span>
+          <input
+            autoComplete="off"
+            onChange={(event) => setKey(event.target.value)}
+            placeholder="sb_publishable_…"
+            required
+            type="password"
+            value={key}
+          />
+        </label>
+        <small>不要填写 Secret Key 或 Service Role Key。</small>
+        {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
+        <div className="unfold-dialog__actions">
+          {config && <button onClick={onDisconnect} type="button">断开连接</button>}
+          <button className="unfold-dialog__primary" disabled={busy} type="submit">
+            {busy ? "连接中…" : config ? "重新连接" : "连接并同步"}
+          </button>
+        </div>
+      </form>
+      {config && (
+        <p className={`supabase-sync-dialog__status supabase-sync-dialog__status--${status}`} role="status">
+          {status === "syncing" ? "正在同步…" : status === "error" ? "同步失败" : "已连接并自动同步"}
+        </p>
+      )}
+    </UnfoldDialog>
+  );
+}
+
 function WorkThumbnail({ scene }) {
   const [artwork, setArtwork] = useState(null);
 
@@ -1962,6 +2053,11 @@ function App() {
   const [hermesConnected, setHermesConnected] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [supabaseOpen, setSupabaseOpen] = useState(false);
+  const [supabaseConfig, setSupabaseConfig] = useState(
+    () => isShared ? null : readSupabaseConfig(localStorage),
+  );
+  const [supabaseState, setSupabaseState] = useState("idle");
   const [worksOpen, setWorksOpen] = useState(false);
   const [exportError, setExportError] = useState("");
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
@@ -1972,6 +2068,9 @@ function App() {
   const saveTimer = useRef();
   const publishTimer = useRef();
   const notionNoticeTimer = useRef();
+  const supabaseTimer = useRef();
+  const supabaseQueue = useRef(Promise.resolve());
+  const supabaseReady = useRef(false);
   const saveRevision = useRef(0);
   const cloudSave = useRef(Promise.resolve());
   const activeWorkId = useRef(workspace.activeWorkId);
@@ -1982,6 +2081,8 @@ function App() {
   const agentUndoScene = useRef(null);
   const agentUndoRevision = useRef("");
   const latestScene = useRef(localScene);
+  const worksRef = useRef(works);
+  worksRef.current = works;
   const linkEditorElement = editorView.elements.find(
     (element) => element.id === linkEditorId && !element.isDeleted,
   );
@@ -2063,15 +2164,17 @@ function App() {
     }, 400);
   }, []);
 
-  const openWork = useCallback((workId) => {
+  const openWork = useCallback((workId, restoringCloud = false) => {
     setWorksOpen(false);
-    if (workId === activeWorkId.current) {
+    if (workId === activeWorkId.current && !restoringCloud) {
       setPreview(false);
       return;
     }
     window.clearTimeout(saveTimer.current);
     saveRevision.current += 1;
-    writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current);
+    if (!restoringCloud) {
+      writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current);
+    }
     localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, workId);
     activeWorkId.current = workId;
     publication.current = readPublication(localStorage, publicationKeyForWork(workId));
@@ -2093,6 +2196,112 @@ function App() {
     excalidrawAPI?.addFiles(Object.values(nextScene.files ?? {}));
     excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
   }, [excalidrawAPI]);
+
+  const applyCloudWorkspace = useCallback((value) => {
+    const snapshot = parseWorkspaceSnapshot(value);
+    if (!snapshot) throw new Error("云端作品数据格式无效。");
+    if (!writeWorkspaceSnapshot(localStorage, snapshot)) {
+      throw new Error("浏览器存储空间不足，无法下载云端作品。");
+    }
+    setWorks(snapshot.works);
+    openWork(snapshot.activeWorkId, true);
+  }, [openWork]);
+
+  const syncExistingSupabase = useCallback(async (config) => {
+    setSupabaseState("syncing");
+    try {
+      const cloud = await pullSupabaseWorkspace(config);
+      const local = createWorkspaceSnapshot(
+        localStorage,
+        worksRef.current,
+        activeWorkId.current,
+      );
+      if (cloud) {
+        const snapshot = parseWorkspaceSnapshot(cloud);
+        if (!snapshot) throw new Error("云端作品数据格式无效。");
+        if (snapshot.updatedAt > local.updatedAt) applyCloudWorkspace(snapshot);
+        else if (snapshot.updatedAt < local.updatedAt) {
+          await pushSupabaseWorkspace(config, local);
+        }
+      } else {
+        await pushSupabaseWorkspace(config, local);
+      }
+      supabaseReady.current = true;
+      setSupabaseState("connected");
+    } catch (error) {
+      supabaseReady.current = false;
+      setSupabaseState("error");
+      throw error;
+    }
+  }, [applyCloudWorkspace]);
+
+  const connectSupabase = useCallback(async (settings) => {
+    const config = normalizeSupabaseConfig(settings);
+    setSupabaseState("syncing");
+    try {
+      const cloud = await pullSupabaseWorkspace(config);
+      const local = createWorkspaceSnapshot(
+        localStorage,
+        worksRef.current,
+        activeWorkId.current,
+      );
+      if (cloud) {
+        const snapshot = parseWorkspaceSnapshot(cloud);
+        if (!snapshot) throw new Error("云端作品数据格式无效。");
+        const useCloud = window.confirm(
+          "云端已有作品。\n\n确定：下载云端作品并替换本地作品库\n取消：保留本地作品并上传到云端",
+        );
+        if (useCloud) applyCloudWorkspace(snapshot);
+        else await pushSupabaseWorkspace(config, local);
+      } else {
+        await pushSupabaseWorkspace(config, local);
+      }
+      if (!writeSupabaseConfig(localStorage, config)) {
+        throw new Error("无法在浏览器中保存 Supabase 配置。");
+      }
+      supabaseReady.current = true;
+      setSupabaseConfig(config);
+      setSupabaseState("connected");
+    } catch (error) {
+      supabaseReady.current = false;
+      setSupabaseState("error");
+      throw error;
+    }
+  }, [applyCloudWorkspace]);
+
+  const disconnectSupabase = useCallback(() => {
+    window.clearTimeout(supabaseTimer.current);
+    localStorage.removeItem(SUPABASE_CONFIG_STORAGE_KEY);
+    supabaseReady.current = false;
+    setSupabaseConfig(null);
+    setSupabaseState("idle");
+  }, []);
+
+  useEffect(() => {
+    if (isShared || !supabaseConfig || supabaseReady.current) return;
+    syncExistingSupabase(supabaseConfig).catch(() => {});
+  }, [isShared, supabaseConfig, syncExistingSupabase]);
+
+  useEffect(() => {
+    if (!supabaseConfig || !supabaseReady.current) return undefined;
+    window.clearTimeout(supabaseTimer.current);
+    supabaseTimer.current = window.setTimeout(() => {
+      const snapshot = createWorkspaceSnapshot(
+        localStorage,
+        worksRef.current,
+        activeWorkId.current,
+      );
+      setSupabaseState("syncing");
+      supabaseQueue.current = supabaseQueue.current
+        .catch(() => {})
+        .then(() => pushSupabaseWorkspace(supabaseConfig, snapshot));
+      supabaseQueue.current.then(
+        () => setSupabaseState("connected"),
+        () => setSupabaseState("error"),
+      );
+    }, 1200);
+    return () => window.clearTimeout(supabaseTimer.current);
+  }, [supabaseConfig, works]);
 
   const createWork = useCallback(() => {
     const suggestedName = `作品 ${works.length + 1}`;
@@ -2132,7 +2341,9 @@ function App() {
     if (!work) return;
     const name = window.prompt("作品名称", work.name)?.trim().slice(0, 80);
     if (!name || name === work.name) return;
-    const nextWorks = works.map((item) => item.id === workId ? { ...item, name } : item);
+    const nextWorks = works.map((item) => item.id === workId
+      ? { ...item, name, updatedAt: Date.now() }
+      : item);
     if (!writeWorks(localStorage, nextWorks)) {
       window.alert("重命名失败，请检查浏览器存储空间。");
       return;
@@ -2313,6 +2524,7 @@ function App() {
       window.clearTimeout(saveTimer.current);
       window.clearTimeout(publishTimer.current);
       window.clearTimeout(notionNoticeTimer.current);
+      window.clearTimeout(supabaseTimer.current);
     },
     [],
   );
@@ -2656,14 +2868,21 @@ function App() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    let imported;
     try {
-      const imported = file.name.toLowerCase().endsWith(".unfold")
-        ? parseUnfoldScene(await file.text())
+      const contents = await file.text();
+      imported = file.name.toLowerCase().endsWith(".unfold")
+        ? parseUnfoldScene(contents)
         : await loadFromBlob(
             file,
             latestScene.current.appState,
             latestScene.current.elements,
-          );
+          ).catch(() => parseUnfoldScene(contents));
+    } catch {
+      window.alert("这个文件格式无效或已经损坏。");
+      return;
+    }
+    try {
       const nextScene = withoutNativeLinks({
         elements: imported.elements ?? [],
         appState: imported.appState ?? {},
@@ -2681,7 +2900,7 @@ function App() {
       setWorks(nextWorks);
       openWork(id);
     } catch {
-      window.alert("无法打开这个 UNFOLD 文件。");
+      window.alert("文件已读取，但浏览器存储空间不足。请先删除不需要的作品后重试。");
     }
   }, [openWork, works]);
 
@@ -3265,6 +3484,27 @@ function App() {
                   strokeWidth="1.5"
                   viewBox="0 0 24 24"
                 >
+                  <path d="M7.5 18.5h9a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 6.5 9a4.75 4.75 0 0 0 1 9.5Z" />
+                  <path d="m9.5 14 2.5 2.5 3.5-4" />
+                </svg>
+              )}
+              onSelect={() => setSupabaseOpen(true)}
+            >
+              {supabaseConfig
+                ? `云同步 · ${supabaseState === "error" ? "失败" : "已连接"}`
+                : "云同步"}
+            </MainMenu.Item>
+            <MainMenu.Item
+              icon={(
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
                   <path d="M3.5 6.5h6l2 2h9v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
                 </svg>
               )}
@@ -3389,6 +3629,15 @@ function App() {
           error={exportError}
           onClose={() => setExportOpen(false)}
           onExport={exportScene}
+        />
+      )}
+      {!preview && supabaseOpen && (
+        <SupabaseSyncDialog
+          config={supabaseConfig}
+          onClose={() => setSupabaseOpen(false)}
+          onConnect={connectSupabase}
+          onDisconnect={disconnectSupabase}
+          status={supabaseState}
         />
       )}
       {!isShared && worksOpen && (

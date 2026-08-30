@@ -2,6 +2,7 @@ export const SCENE_STORAGE_KEY = "story-canvas.scene.v1";
 export const PUBLICATION_STORAGE_KEY = "story-canvas.publication.v1";
 export const WORKS_STORAGE_KEY = "story-canvas.works.v1";
 export const ACTIVE_WORK_STORAGE_KEY = "story-canvas.active-work.v1";
+export const WORKSPACE_UPDATED_STORAGE_KEY = "story-canvas.workspace-updated.v1";
 
 export const sceneKeyForWork = (id) => `${SCENE_STORAGE_KEY}:${id}`;
 export const publicationKeyForWork = (id) => `${PUBLICATION_STORAGE_KEY}:${id}`;
@@ -61,9 +62,58 @@ export function readWorks(storage) {
   }
 }
 
-export function writeWorks(storage, works) {
+export function writeWorks(storage, works, updatedAt = Date.now()) {
   try {
     storage.setItem(WORKS_STORAGE_KEY, JSON.stringify(works));
+    storage.setItem(WORKSPACE_UPDATED_STORAGE_KEY, String(updatedAt));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function createWorkspaceSnapshot(storage, works, activeWorkId) {
+  const saved = storage.getItem(WORKSPACE_UPDATED_STORAGE_KEY);
+  const savedUpdatedAt = saved == null ? NaN : Number(saved);
+  return {
+    version: 1,
+    updatedAt: Number.isFinite(savedUpdatedAt)
+      ? savedUpdatedAt
+      : Math.max(...works.map((work) => work.updatedAt), 0),
+    activeWorkId,
+    works,
+    scenes: Object.fromEntries(works.map(({ id }) => [
+      id,
+      readScene(storage, sceneKeyForWork(id)),
+    ])),
+  };
+}
+
+export function parseWorkspaceSnapshot(value) {
+  if (!value || value.version !== 1 || !Number.isFinite(value.updatedAt)) return null;
+  const memory = { getItem: () => JSON.stringify(value.works) };
+  const works = readWorks(memory);
+  if (!works.length || works.length !== value.works?.length) return null;
+  if (!works.some(({ id }) => id === value.activeWorkId)) return null;
+  if (!value.scenes || typeof value.scenes !== "object") return null;
+  if (works.some(({ id }) => {
+    const scene = value.scenes[id];
+    return !Array.isArray(scene?.elements) ||
+      !scene.appState || typeof scene.appState !== "object" ||
+      !scene.files || typeof scene.files !== "object";
+  })) return null;
+  return { ...value, works };
+}
+
+export function writeWorkspaceSnapshot(storage, value) {
+  const snapshot = parseWorkspaceSnapshot(value);
+  if (!snapshot) return false;
+  for (const work of snapshot.works) {
+    if (!writeScene(storage, sceneKeyForWork(work.id), snapshot.scenes[work.id])) return false;
+  }
+  if (!writeWorks(storage, snapshot.works, snapshot.updatedAt)) return false;
+  try {
+    storage.setItem(ACTIVE_WORK_STORAGE_KEY, snapshot.activeWorkId);
     return true;
   } catch {
     return false;
@@ -105,14 +155,14 @@ export function serializeUnfoldScene(scene) {
 export function parseUnfoldScene(value) {
   const scene = JSON.parse(value);
   if (
-    scene?.type !== "unfold" ||
+    !["unfold", "excalidraw"].includes(scene?.type) ||
     !Array.isArray(scene.elements) ||
     !scene.appState || typeof scene.appState !== "object" ||
-    !scene.files || typeof scene.files !== "object"
+    (scene.files != null && typeof scene.files !== "object")
   ) {
     throw new Error("Invalid UNFOLD file");
   }
-  return scene;
+  return { ...scene, files: scene.files ?? {}, storyPath: scene.storyPath ?? [] };
 }
 
 export const MAX_SHARED_SCENE_BYTES = 1_500_000;

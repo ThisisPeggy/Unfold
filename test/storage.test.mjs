@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ACTIVE_WORK_STORAGE_KEY,
+  createWorkspaceSnapshot,
   decodeScene,
   encodeScene,
   initializeWorkStorage,
@@ -9,6 +10,7 @@ import {
   isSceneEditKey,
   isSceneId,
   parseUnfoldScene,
+  parseWorkspaceSnapshot,
   publicationKeyForWork,
   readPublication,
   readScene,
@@ -17,6 +19,8 @@ import {
   serializeUnfoldScene,
   writePublication,
   writeScene,
+  writeWorkspaceSnapshot,
+  writeWorks,
 } from "../src/storage.js";
 import { missingArrowhead } from "../src/tool-state.js";
 
@@ -46,6 +50,17 @@ test("UNFOLD files preserve the complete scene and reject other JSON", () => {
     version: 1,
   });
   assert.throws(() => parseUnfoldScene('{"type":"excalidraw"}'));
+});
+
+test("imports legacy Excalidraw files as editable UNFOLD scenes", () => {
+  const scene = parseUnfoldScene(JSON.stringify({
+    type: "excalidraw",
+    version: 2,
+    elements: [],
+    appState: { viewBackgroundColor: "#fff" },
+  }));
+  assert.deepEqual(scene.files, {});
+  assert.deepEqual(scene.storyPath, []);
 });
 
 test("shared scene links round-trip and reject malformed data", async () => {
@@ -107,6 +122,25 @@ test("migrates the existing scene and publication into the first local work", ()
   });
   assert.equal(storage.getItem(ACTIVE_WORK_STORAGE_KEY), id);
   assert.deepEqual(initializeWorkStorage(storage, () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), workspace);
+});
+
+test("round-trips a complete cloud workspace snapshot", () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const id = "12345678-1234-4123-8123-123456789abc";
+  const works = [{ id, name: "Cloud", updatedAt: 42 }];
+  const scene = { elements: [], appState: {}, files: {}, storyPath: [] };
+  writeScene(storage, sceneKeyForWork(id), scene);
+  writeWorks(storage, works, 42);
+  const snapshot = createWorkspaceSnapshot(storage, works, id);
+  assert.deepEqual(parseWorkspaceSnapshot(snapshot), snapshot);
+  values.clear();
+  assert.equal(writeWorkspaceSnapshot(storage, snapshot), true);
+  assert.deepEqual(readScene(storage, sceneKeyForWork(id)), scene);
+  assert.equal(storage.getItem(ACTIVE_WORK_STORAGE_KEY), id);
 });
 
 test("restores an arrowhead only for the arrow tool", () => {
