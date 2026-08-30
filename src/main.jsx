@@ -1807,6 +1807,18 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [projectReady, setProjectReady] = useState(Boolean(config));
+
+  const continueToLogin = (event) => {
+    event.preventDefault();
+    setError("");
+    try {
+      normalizeSupabaseConfig({ url, key });
+      setProjectReady(true);
+    } catch (configurationError) {
+      setError(configurationError.message || "请检查项目配置。");
+    }
+  };
 
   const connect = async (event, mode = "signin") => {
     event.preventDefault();
@@ -1837,8 +1849,12 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
     <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title="云同步">
       <div className="supabase-sync-dialog__hero">
         <div>
-          <h3>连接你的 Supabase</h3>
-          <p>本地使用无需登录；登录仅用于开启云同步。</p>
+          <h3>{session ? "云同步已开启" : projectReady ? "登录 Supabase" : "连接你的 Supabase"}</h3>
+          <p>{session
+            ? "你的作品会自动保存到这个账号。"
+            : projectReady
+              ? "登录后才会读取和保存云端作品。"
+              : "先连接项目。本地使用始终无需登录。"}</p>
         </div>
         {session && (
           <span className={`supabase-sync-dialog__badge supabase-sync-dialog__badge--${status}`}>
@@ -1848,7 +1864,7 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
         )}
       </div>
 
-      {!session && <div className="supabase-sync-dialog__setup">
+      {!session && !projectReady && <div className="supabase-sync-dialog__setup">
         <section>
           <span className="supabase-sync-dialog__step">1</span>
           <div>
@@ -1872,10 +1888,10 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
         </section>
       </div>}
 
-      {!session ? <form onSubmit={connect}>
+      {!session && !projectReady && <form onSubmit={continueToLogin}>
         <div className="supabase-sync-dialog__form-heading">
-          <strong>登录并连接</strong>
-          <p>项目配置只需填写一次，账号仅用于云同步。</p>
+          <strong>项目配置</strong>
+          <p>在 Supabase 的 Connect 面板中找到以下两项。</p>
         </div>
         <label>
           <span>Project URL</span>
@@ -1899,6 +1915,25 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
             value={key}
           />
         </label>
+        <small>请勿填写 Secret Key 或 Service Role Key。</small>
+        {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
+        <div className="unfold-dialog__actions">
+          <button className="unfold-dialog__primary" type="submit">继续</button>
+        </div>
+      </form>}
+
+      {!session && projectReady && <form onSubmit={connect}>
+        <div className="supabase-sync-dialog__project">
+          <div>
+            <span>当前项目</span>
+            <strong>{url.replace(/^https?:\/\//, "")}</strong>
+          </div>
+          <button onClick={() => {
+            setProjectReady(false);
+            setError("");
+            setNotice("");
+          }} type="button">更换</button>
+        </div>
         <label>
           <span>邮箱</span>
           <input
@@ -1920,7 +1955,7 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
             value={password}
           />
         </label>
-        <small>登录信息仅保存在当前浏览器。请勿填写 Secret Key 或 Service Role Key。</small>
+        <small>登录状态仅保存在当前浏览器。</small>
         {notice && <p className="supabase-sync-dialog__notice" role="status">{notice}</p>}
         {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
         <div className="unfold-dialog__actions">
@@ -1931,7 +1966,9 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
             {busy ? "正在验证…" : "登录并开始同步"}
           </button>
         </div>
-      </form> : (
+      </form>}
+
+      {session && (
         <div className="supabase-sync-dialog__account">
           <div>
             <span>当前账号</span>

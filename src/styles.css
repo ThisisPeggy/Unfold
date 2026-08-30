@@ -3579,6 +3579,7 @@ body,
   margin-top: 4px;
 }
 
+.supabase-sync-dialog__project,
 .supabase-sync-dialog__account {
   display: flex;
   align-items: center;
@@ -3590,22 +3591,32 @@ body,
   border-radius: 8px;
 }
 
+.supabase-sync-dialog__project {
+  margin: 0 0 6px;
+  background: #f7f7f5;
+}
+
+.supabase-sync-dialog__project span,
+.supabase-sync-dialog__project strong,
 .supabase-sync-dialog__account span,
 .supabase-sync-dialog__account strong {
   display: block;
 }
 
+.supabase-sync-dialog__project span,
 .supabase-sync-dialog__account span {
   margin-bottom: 3px;
   color: var(--tale-muted);
   font-size: 11px;
 }
 
+.supabase-sync-dialog__project strong,
 .supabase-sync-dialog__account strong {
   font-size: 13px;
   font-weight: 500;
 }
 
+.supabase-sync-dialog__project button,
 .supabase-sync-dialog__account button {
   min-height: 40px;
   padding: 0 12px;
@@ -3617,6 +3628,7 @@ body,
   cursor: pointer;
 }
 
+.supabase-sync-dialog__project button:active,
 .supabase-sync-dialog__account button:active {
   transform: scale(0.96);
 }
