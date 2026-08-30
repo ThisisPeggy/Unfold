@@ -1772,17 +1772,17 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
-function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onImport, onOpen, onRename, works }) {
+function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onOpen, onRename, works }) {
   return (
     <section className="works-library" aria-labelledby="works-library-title">
       <header className="works-library__header">
         <div>
-          <button className="works-library__back" onClick={onBack} type="button">← 返回画布</button>
+          <span className="works-library__brand">UNFOLD</span>
           <h1 id="works-library-title">我的作品</h1>
         </div>
         <div className="works-library__actions">
-          <button onClick={onImport} type="button">打开文件</button>
           <button className="works-library__create" onClick={onCreate} type="button">新建作品</button>
+          <button onClick={onBack} type="button">返回画布</button>
         </div>
       </header>
       <div className="works-library__grid">
@@ -1927,7 +1927,7 @@ function App() {
   const [hermesConnected, setHermesConnected] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [worksOpen, setWorksOpen] = useState(!isShared);
+  const [worksOpen, setWorksOpen] = useState(false);
   const [exportError, setExportError] = useState("");
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
   const linkEditorTrigger = useRef(null);
@@ -3354,7 +3354,6 @@ function App() {
           onBack={() => setWorksOpen(false)}
           onCreate={createWork}
           onDelete={deleteWork}
-          onImport={() => fileInputRef.current?.click()}
           onOpen={openWork}
           onRename={renameWork}
           works={works.map((work) => ({

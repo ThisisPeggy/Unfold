@@ -3391,23 +3391,11 @@ body,
   margin-bottom: 32px;
 }
 
-.works-library__back {
-  padding: 0;
-  border: 0;
+.works-library__brand {
   color: var(--tale-muted);
-  background: transparent;
-  font: 600 11px/1 var(--tale-font);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.12em;
-  cursor: pointer;
-}
-
-.works-library__back:hover {
-  color: var(--tale-ink);
-}
-
-.works-library__back:focus-visible {
-  outline: 2px solid var(--tale-accent);
-  outline-offset: 4px;
 }
 
 .works-library h1 {
