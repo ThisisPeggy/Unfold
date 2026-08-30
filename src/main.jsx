@@ -22,14 +22,22 @@ import StoryCameraPreview from "./StoryCameraPreview.jsx";
 import StoryPathPanel from "./StoryPathEditor.jsx";
 import { installContextMenuOrganizer } from "./context-menu.js";
 import {
+  ACTIVE_WORK_STORAGE_KEY,
   decodeScene,
   encodeScene,
+  initializeWorkStorage,
+  isSceneEditKey,
   isSceneId,
   parseUnfoldScene,
+  publicationKeyForWork,
+  readPublication,
   readScene,
   sceneIdFromPath,
+  sceneKeyForWork,
   serializeUnfoldScene,
+  writePublication,
   writeScene,
+  writeWorks,
 } from "./storage.js";
 import { missingArrowhead } from "./tool-state.js";
 import {
@@ -72,7 +80,6 @@ import {
   textHighlightRects,
 } from "./story.js";
 
-const STORAGE_KEY = "story-canvas.scene.v1";
 const PAPER = "#ffffff";
 const DEFAULT_STROKE_COLOR = "#37352f";
 const STORY_PADDING = 32;
@@ -1765,6 +1772,68 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
+function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onImport, onOpen, onRename, works }) {
+  return (
+    <section className="works-library" aria-labelledby="works-library-title">
+      <header className="works-library__header">
+        <div>
+          <button className="works-library__back" onClick={onBack} type="button">← 返回画布</button>
+          <h1 id="works-library-title">我的作品</h1>
+        </div>
+        <div className="works-library__actions">
+          <button onClick={onImport} type="button">打开文件</button>
+          <button className="works-library__create" onClick={onCreate} type="button">新建作品</button>
+        </div>
+      </header>
+      <div className="works-library__grid">
+        {works.map((work) => (
+          <article
+            className={`work-card${work.id === activeWorkId ? " work-card--active" : ""}`}
+            key={work.id}
+          >
+            <button className="work-card__preview" onClick={() => onOpen(work.id)} type="button">
+              <span className="work-card__paper">
+                {(work.scene?.elements ?? [])
+                  .filter((element) => element.type === "text" && !element.isDeleted && element.text?.trim())
+                  .slice(0, 3)
+                  .map((element) => <span key={element.id}>{element.text.trim()}</span>)}
+                {!work.scene?.elements?.some((element) =>
+                  element.type === "text" && !element.isDeleted && element.text?.trim(),
+                ) && (
+                  <em>
+                    {work.scene?.elements?.filter((element) => !element.isDeleted).length
+                      ? `${work.scene.elements.filter((element) => !element.isDeleted).length} 个画布元素`
+                      : "空白作品"}
+                  </em>
+                )}
+              </span>
+            </button>
+            <div className="work-card__meta">
+              <button className="work-card__title" onClick={() => onOpen(work.id)} type="button">
+                <strong>{work.name}</strong>
+                <span>
+                {new Date(work.updatedAt).toLocaleString("zh-CN", {
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                {work.published ? " · 已发布" : " · 本地"}
+                {work.id === activeWorkId ? " · 当前" : ""}
+                </span>
+              </button>
+              <div className="work-card__tools">
+                <button aria-label={`重命名 ${work.name}`} onClick={() => onRename(work.id)} type="button">重命名</button>
+                <button aria-label={`删除 ${work.name}`} onClick={() => onDelete(work.id)} type="button">删除</button>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ClearCanvasDialog({ onCancel, onConfirm }) {
   return (
     <UnfoldDialog
@@ -1822,14 +1891,22 @@ function App() {
   );
   const sharedSceneId = useMemo(() => sceneIdFromPath(location.pathname), []);
   const isShared = Boolean(sharedPayload || sharedSceneId);
-  const localScene = useMemo(
-    () => withoutNativeLinks(readScene(localStorage, STORAGE_KEY) ?? starterScene()),
+  const workspace = useMemo(
+    () => initializeWorkStorage(localStorage, () => crypto.randomUUID()),
     [],
   );
+  const localScene = useMemo(
+    () => withoutNativeLinks(
+      readScene(localStorage, sceneKeyForWork(workspace.activeWorkId)) ?? starterScene(),
+    ),
+    [workspace.activeWorkId],
+  );
+  const [works, setWorks] = useState(workspace.works);
   const [preview, setPreview] = useState(isShared);
   const [saveState, setSaveState] = useState("saved");
   const [publishState, setPublishState] = useState("idle");
   const [shareError, setShareError] = useState(false);
+  const [notionNotice, setNotionNotice] = useState("");
   const [scene, setScene] = useState(isShared ? null : localScene);
   const [editorView, setEditorView] = useState({
     elements: localScene.elements,
@@ -1850,6 +1927,7 @@ function App() {
   const [hermesConnected, setHermesConnected] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [worksOpen, setWorksOpen] = useState(!isShared);
   const [exportError, setExportError] = useState("");
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
   const linkEditorTrigger = useRef(null);
@@ -1858,6 +1936,13 @@ function App() {
   const fileInputRef = useRef(null);
   const saveTimer = useRef();
   const publishTimer = useRef();
+  const notionNoticeTimer = useRef();
+  const saveRevision = useRef(0);
+  const cloudSave = useRef(Promise.resolve());
+  const activeWorkId = useRef(workspace.activeWorkId);
+  const publication = useRef(
+    readPublication(localStorage, publicationKeyForWork(workspace.activeWorkId)),
+  );
   const highlighterPointerUp = useRef(null);
   const agentUndoScene = useRef(null);
   const agentUndoRevision = useRef("");
@@ -1896,6 +1981,153 @@ function App() {
     ),
     [editorView.appState.selectedElementIds, editorView.elements],
   );
+
+  const persistScene = useCallback((nextScene) => {
+    window.clearTimeout(saveTimer.current);
+    const revision = ++saveRevision.current;
+    const workId = activeWorkId.current;
+    const currentPublication = publication.current;
+    setSaveState("saving");
+    saveTimer.current = window.setTimeout(() => {
+      if (!writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
+        if (revision === saveRevision.current) setSaveState("error");
+        return;
+      }
+      setWorks((currentWorks) => {
+        const nextWorks = currentWorks.map((work) => work.id === workId
+          ? { ...work, updatedAt: Date.now() }
+          : work);
+        writeWorks(localStorage, nextWorks);
+        return nextWorks;
+      });
+      if (!currentPublication) {
+        if (revision === saveRevision.current) setSaveState("saved");
+        return;
+      }
+      cloudSave.current = cloudSave.current
+        .catch(() => {})
+        .then(async () => {
+          const response = await fetch(`/api/scenes?id=${currentPublication.id}`, {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${currentPublication.editKey}`,
+              "Content-Type": "text/plain; charset=utf-8",
+            },
+            body: await encodeScene(nextScene),
+          });
+          if (!response.ok) throw new Error("Cloud save failed");
+        });
+      cloudSave.current.then(
+        () => {
+          if (revision === saveRevision.current) setSaveState("saved");
+        },
+        () => {
+          if (revision === saveRevision.current) setSaveState("error");
+        },
+      );
+    }, 400);
+  }, []);
+
+  const openWork = useCallback((workId) => {
+    setWorksOpen(false);
+    if (workId === activeWorkId.current) {
+      setPreview(false);
+      return;
+    }
+    window.clearTimeout(saveTimer.current);
+    saveRevision.current += 1;
+    writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current);
+    localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, workId);
+    activeWorkId.current = workId;
+    publication.current = readPublication(localStorage, publicationKeyForWork(workId));
+    const nextScene = withoutNativeLinks(
+      readScene(localStorage, sceneKeyForWork(workId)) ?? starterScene(),
+    );
+    latestScene.current = nextScene;
+    editorViewSignature.current = editorLinkSignature(nextScene.elements, nextScene.appState);
+    setScene(nextScene);
+    setEditorView({ elements: nextScene.elements, appState: nextScene.appState });
+    setStoryPath(nextScene.storyPath ?? []);
+    setLinkEditorId(null);
+    setPathEditorOpen(false);
+    setAssistantOpen(false);
+    setHighlighterActive(false);
+    setPreview(false);
+    setSaveState("saved");
+    excalidrawAPI?.resetScene();
+    excalidrawAPI?.addFiles(Object.values(nextScene.files ?? {}));
+    excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
+  }, [excalidrawAPI]);
+
+  const createWork = useCallback(() => {
+    const suggestedName = `作品 ${works.length + 1}`;
+    const name = window.prompt("作品名称", suggestedName)?.trim().slice(0, 80);
+    if (!name) return;
+    const id = crypto.randomUUID();
+    const appState = {
+      ...latestScene.current.appState,
+      scrollX: 0,
+      scrollY: 0,
+      zoom: { value: 1 },
+      selectedElementIds: {},
+      selectedGroupIds: {},
+    };
+    const nextScene = {
+      elements: [],
+      appState,
+      files: {},
+      storyPath: [],
+    };
+    if (!writeScene(localStorage, sceneKeyForWork(id), nextScene)) {
+      window.alert("无法保存新作品，请检查浏览器存储空间。");
+      return;
+    }
+    const nextWorks = [...works, { id, name, updatedAt: Date.now() }];
+    if (!writeWorks(localStorage, nextWorks)) {
+      localStorage.removeItem(sceneKeyForWork(id));
+      window.alert("无法保存新作品，请检查浏览器存储空间。");
+      return;
+    }
+    setWorks(nextWorks);
+    openWork(id);
+  }, [openWork, works]);
+
+  const renameWork = useCallback((workId) => {
+    const work = works.find(({ id }) => id === workId);
+    if (!work) return;
+    const name = window.prompt("作品名称", work.name)?.trim().slice(0, 80);
+    if (!name || name === work.name) return;
+    const nextWorks = works.map((item) => item.id === workId ? { ...item, name } : item);
+    if (!writeWorks(localStorage, nextWorks)) {
+      window.alert("重命名失败，请检查浏览器存储空间。");
+      return;
+    }
+    setWorks(nextWorks);
+  }, [works]);
+
+  const deleteWork = useCallback((workId) => {
+    if (works.length === 1) {
+      window.alert("至少保留一个作品。");
+      return;
+    }
+    const work = works.find(({ id }) => id === workId);
+    const published = readPublication(localStorage, publicationKeyForWork(workId));
+    if (!work || !window.confirm(
+      `删除“${work.name}”？${published ? "Notion 中已嵌入的内容仍可查看，但无法再从这里更新。" : ""}`,
+    )) return;
+    const nextWorks = works.filter(({ id }) => id !== workId);
+    if (!writeWorks(localStorage, nextWorks)) {
+      window.alert("删除失败，请检查浏览器存储空间。");
+      return;
+    }
+    if (workId === activeWorkId.current) {
+      openWork(nextWorks[0].id);
+      setWorksOpen(true);
+    }
+    localStorage.removeItem(sceneKeyForWork(workId));
+    localStorage.removeItem(publicationKeyForWork(workId));
+    setWorks(nextWorks);
+  }, [openWork, works]);
 
   const closePathEditor = useCallback(() => {
     setPathEditorOpen(false);
@@ -2045,6 +2277,7 @@ function App() {
     () => () => {
       window.clearTimeout(saveTimer.current);
       window.clearTimeout(publishTimer.current);
+      window.clearTimeout(notionNoticeTimer.current);
     },
     [],
   );
@@ -2067,23 +2300,51 @@ function App() {
 
   useEffect(() => {
     if (!isShared) return;
-    const loadScene = sharedPayload
-      ? decodeScene(sharedPayload)
-      : fetch(`/api/scenes?id=${sharedSceneId}`).then(async (response) => {
-        if (!response.ok) throw new Error("Shared scene not found");
-        return decodeScene(await response.text());
-      });
-
-    loadScene
-      .then((decodedScene) => {
-        const nextScene = withoutNativeLinks(decodedScene);
-        latestScene.current = nextScene;
-        setScene(nextScene);
-      })
-      .catch(() => {
+    let active = true;
+    let loaded = false;
+    let etag = "";
+    const applyScene = (decodedScene) => {
+      if (!active) return;
+      loaded = true;
+      setShareError(false);
+      const nextScene = withoutNativeLinks(decodedScene);
+      latestScene.current = nextScene;
+      setScene(nextScene);
+    };
+    if (sharedPayload) {
+      decodeScene(sharedPayload).then(applyScene).catch(() => {
+        if (!active) return;
         setShareError(true);
         setScene(starterScene());
       });
+      return () => {
+        active = false;
+      };
+    }
+    let poll;
+    const loadScene = async () => {
+      try {
+        const response = await fetch(`/api/scenes?id=${sharedSceneId}`, {
+          cache: "no-store",
+          headers: etag ? { "If-None-Match": etag } : {},
+        });
+        if (response.status === 304) return;
+        if (!response.ok) throw new Error("Shared scene not found");
+        etag = response.headers.get("etag") || "";
+        applyScene(await decodeScene(await response.text()));
+      } catch {
+        if (!active || loaded) return;
+        setShareError(true);
+        setScene(starterScene());
+      } finally {
+        if (active) poll = window.setTimeout(loadScene, 5000);
+      }
+    };
+    loadScene();
+    return () => {
+      active = false;
+      window.clearTimeout(poll);
+    };
   }, [isShared, sharedPayload, sharedSceneId]);
 
   useEffect(() => {
@@ -2153,8 +2414,6 @@ function App() {
   }, [excalidrawAPI]);
 
   const save = useCallback((elements, appState, files) => {
-    window.clearTimeout(saveTimer.current);
-    setSaveState("saving");
     if (missingArrowhead(appState)) {
       excalidrawAPI?.updateScene({ appState: { currentItemEndArrowhead: "arrow" } });
     }
@@ -2203,14 +2462,8 @@ function App() {
         appState: { showHyperlinkPopup: false },
       }));
     }
-    saveTimer.current = window.setTimeout(() => {
-      setSaveState(
-        writeScene(localStorage, STORAGE_KEY, latestScene.current)
-          ? "saved"
-          : "error",
-      );
-    }, 400);
-  }, [excalidrawAPI, highlighterActive]);
+    persistScene(latestScene.current);
+  }, [excalidrawAPI, highlighterActive, persistScene]);
 
   const clearCanvas = useCallback(() => {
     if (!excalidrawAPI) return;
@@ -2245,7 +2498,7 @@ function App() {
   }, [clearOpen, exportOpen, preview]);
 
   const publish = useCallback(async () => {
-    if (publishState === "working") return;
+    if (publishState === "working") return null;
     setPublishState("working");
     try {
       const publishedScene = excalidrawAPI
@@ -2255,14 +2508,32 @@ function App() {
             files: excalidrawAPI.getFiles(),
           }
         : latestScene.current;
-      const response = await fetch("/api/scenes", {
-        method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      let current = publication.current;
+      const response = await fetch(current ? `/api/scenes?id=${current.id}` : "/api/scenes", {
+        method: current ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          ...(current ? { Authorization: `Bearer ${current.editKey}` } : {}),
+        },
         body: await encodeScene(publishedScene),
       });
-      const { id } = response.ok ? await response.json() : {};
-      if (!isSceneId(id)) throw new Error("Publishing failed");
-      const url = new URL(`/s/${id}`, location.origin);
+      if (current) {
+        if (!response.ok) throw new Error("Publishing failed");
+      } else {
+        current = response.ok ? await response.json() : null;
+        if (!isSceneId(current?.id) || !isSceneEditKey(current?.editKey)) {
+          throw new Error("Publishing failed");
+        }
+        publication.current = current;
+        if (!writePublication(
+          localStorage,
+          publicationKeyForWork(activeWorkId.current),
+          current,
+        )) {
+          throw new Error("Publishing credentials could not be saved");
+        }
+      }
+      const url = new URL(`/s/${current.id}`, location.origin);
       try {
         await navigator.clipboard.writeText(url.href);
         setPublishState("copied");
@@ -2270,11 +2541,37 @@ function App() {
         window.prompt("复制这个只读链接", url.href);
         setPublishState("ready");
       }
+      return url.href;
     } catch {
       setPublishState("error");
+      return null;
+    } finally {
+      window.clearTimeout(publishTimer.current);
+      publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
     }
-    publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
   }, [excalidrawAPI, publishState]);
+
+  const addToNotion = useCallback(() => {
+    const notion = window.open("", "_blank");
+    if (notion) {
+      notion.document.title = "添加到 Notion";
+      notion.document.body.textContent = "正在准备作品链接…";
+      notion.document.body.style.cssText = "margin:0;display:grid;place-items:center;height:100vh;font:16px system-ui;color:#37352f";
+      notion.opener = null;
+    }
+    window.clearTimeout(notionNoticeTimer.current);
+    setNotionNotice("正在生成 Notion 链接…");
+    publish().then((url) => {
+      if (!url) {
+        setNotionNotice("添加失败，请检查网络后重试。");
+        if (notion) notion.document.body.textContent = "发布失败，请返回 Unfold 重试。";
+        return;
+      }
+      setNotionNotice("链接已复制，请在 Notion 粘贴并选择“创建嵌入”。");
+      notion?.location.replace("https://www.notion.so");
+      notionNoticeTimer.current = window.setTimeout(() => setNotionNotice(""), 6000);
+    });
+  }, [publish]);
 
   const saveUnfoldFile = useCallback(() => {
     const url = URL.createObjectURL(new Blob(
@@ -2338,17 +2635,20 @@ function App() {
         files: imported.files ?? {},
         storyPath: Array.isArray(imported.storyPath) ? imported.storyPath : [],
       });
-      latestScene.current = nextScene;
-      setStoryPath(nextScene.storyPath);
-      setEditorView({ elements: nextScene.elements, appState: nextScene.appState });
-      setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
-      excalidrawAPI?.resetScene();
-      excalidrawAPI?.addFiles(Object.values(nextScene.files));
-      excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
+      const id = crypto.randomUUID();
+      const name = file.name.replace(/\.(?:unfold|excalidraw)$/i, "").trim() || `作品 ${works.length + 1}`;
+      const nextWorks = [...works, { id, name: name.slice(0, 80), updatedAt: Date.now() }];
+      if (!writeScene(localStorage, sceneKeyForWork(id), nextScene) ||
+        !writeWorks(localStorage, nextWorks)) {
+        localStorage.removeItem(sceneKeyForWork(id));
+        throw new Error("Local storage is full");
+      }
+      setWorks(nextWorks);
+      openWork(id);
     } catch {
       window.alert("无法打开这个 UNFOLD 文件。");
     }
-  }, [excalidrawAPI]);
+  }, [openWork, works]);
 
   const previewLinkAppearance = useCallback(({ icon, side, customIcon }) => {
     if (!linkEditorId) return;
@@ -2395,9 +2695,9 @@ function App() {
     editorViewSignature.current = editorLinkSignature(nextElements, appState);
     setEditorView({ elements: nextElements, appState });
     excalidrawAPI?.updateScene({ elements: nextElements });
-    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+    persistScene(nextScene);
     closeLinkEditor();
-  }, [closeLinkEditor, editorView.appState, excalidrawAPI, linkEditorId]);
+  }, [closeLinkEditor, editorView.appState, excalidrawAPI, linkEditorId, persistScene]);
 
   const commitStoryPath = useCallback((nextPath) => {
     const nextScene = { ...latestScene.current, storyPath: nextPath };
@@ -2411,8 +2711,8 @@ function App() {
       setAgentUndoAvailable(false);
     }
     setStoryPath(nextPath);
-    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
-  }, []);
+    persistScene(nextScene);
+  }, [persistScene]);
 
   const moveStoryStep = useCallback((index, direction) => {
     const path = makeStoryPath(
@@ -2526,12 +2826,12 @@ function App() {
         elements,
         appState: { selectedElementIds: { [element.id]: true } },
       });
-      setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+      persistScene(nextScene);
       excalidrawAPI?.setToast({ message: "图片已放到画布。", duration: 1800 });
     } catch (error) {
       excalidrawAPI?.setToast({ message: error?.message || "无法把图片放到画布。", duration: 3000 });
     }
-  }, [excalidrawAPI]);
+  }, [excalidrawAPI, persistScene]);
 
   const insertAgentText = useCallback((text) => {
     const appState = excalidrawAPI?.getAppState() ?? latestScene.current.appState;
@@ -2553,8 +2853,8 @@ function App() {
     latestScene.current = nextScene;
     setScene(nextScene);
     excalidrawAPI?.updateScene({ elements, appState: { selectedElementIds: { [element.id]: true } } });
-    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
-  }, [excalidrawAPI]);
+    persistScene(nextScene);
+  }, [excalidrawAPI, persistScene]);
 
   const generateAgentPlan = useCallback(async (goal, draftPlan, conversation, signal) => {
     const sourceRevision = hermesSceneRevision(latestScene.current);
@@ -2648,7 +2948,7 @@ function App() {
     setScene(nextScene);
     setEditorView({ elements: plan.elements, appState });
     setStoryPath(nextPath);
-    setSaveState(writeScene(localStorage, STORAGE_KEY, nextScene) ? "saved" : "error");
+    persistScene(nextScene);
     excalidrawAPI?.updateScene({
       elements: plan.elements,
       appState: { viewBackgroundColor: PAPER, selectedElementIds: {} },
@@ -2659,7 +2959,7 @@ function App() {
       animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     }));
     return "";
-  }, [commitStoryPath, excalidrawAPI]);
+  }, [commitStoryPath, excalidrawAPI, persistScene]);
 
   const undoAgentPlan = useCallback(() => {
     const previous = agentUndoScene.current;
@@ -2680,9 +2980,9 @@ function App() {
     setStoryPath(previous.storyPath);
     excalidrawAPI?.addFiles(Object.values(previous.files ?? {}));
     excalidrawAPI?.updateScene({ elements: previous.elements, appState: previous.appState });
-    setSaveState(writeScene(localStorage, STORAGE_KEY, previous) ? "saved" : "error");
+    persistScene(previous);
     return "";
-  }, [excalidrawAPI]);
+  }, [excalidrawAPI, persistScene]);
 
   const openHermes = useCallback(() => {
     setLinkEditorId(null);
@@ -2701,6 +3001,23 @@ function App() {
       role="group"
       aria-label={preview ? "讲解操作" : "画板操作"}
     >
+      {!isShared && (
+        <button
+          className="control-button control-button--works"
+          type="button"
+          title="返回作品库"
+          aria-label="返回作品库"
+          onClick={() => {
+            setLinkEditorId(null);
+            setPathEditorOpen(false);
+            setAssistantOpen(false);
+            setWorksOpen(true);
+          }}
+        >
+          <span aria-hidden="true">←</span>
+          <span className="control-button__label control-button__label--keep">作品库</span>
+        </button>
+      )}
       {!preview && (
         <span className={`save-state save-state--${saveState}`} role="status">
           <span className="save-state__dot" aria-hidden="true" />
@@ -2782,7 +3099,7 @@ function App() {
               : publishState === "ready"
                 ? "已生成"
                 : publishState === "error"
-                  ? "内容过大"
+                  ? "发布失败"
                   : "发布"}
         </button>
       )}
@@ -2863,6 +3180,12 @@ function App() {
         </p>
       )}
 
+      {notionNotice && (
+        <p className="notion-notice" role="status">
+          {notionNotice}
+        </p>
+      )}
+
       {preview ? (
         <StoryView scene={scene} onExit={isShared ? null : () => setPreview(false)} />
       ) : (
@@ -2923,6 +3246,24 @@ function App() {
               onSelect={() => setExportOpen(true)}
             >
               导出
+            </MainMenu.Item>
+            <MainMenu.Item
+              icon={(
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M5 4.5h11l3 3v12H5Zm4 11v-7l6 7v-7" />
+                </svg>
+              )}
+              onSelect={addToNotion}
+            >
+              添加到 Notion
             </MainMenu.Item>
           </MainMenu.Group>
           <MainMenu.Separator />
@@ -3005,6 +3346,22 @@ function App() {
           error={exportError}
           onClose={() => setExportOpen(false)}
           onExport={exportScene}
+        />
+      )}
+      {!isShared && worksOpen && (
+        <WorksLibrary
+          activeWorkId={activeWorkId.current}
+          onBack={() => setWorksOpen(false)}
+          onCreate={createWork}
+          onDelete={deleteWork}
+          onImport={() => fileInputRef.current?.click()}
+          onOpen={openWork}
+          onRename={renameWork}
+          works={works.map((work) => ({
+            ...work,
+            published: Boolean(readPublication(localStorage, publicationKeyForWork(work.id))),
+            scene: readScene(localStorage, sceneKeyForWork(work.id)),
+          }))}
         />
       )}
       {!preview && clearOpen && (

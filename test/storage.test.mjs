@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ACTIVE_WORK_STORAGE_KEY,
   decodeScene,
   encodeScene,
+  initializeWorkStorage,
   isEncodedScene,
+  isSceneEditKey,
   isSceneId,
   parseUnfoldScene,
+  publicationKeyForWork,
+  readPublication,
   readScene,
   sceneIdFromPath,
+  sceneKeyForWork,
   serializeUnfoldScene,
+  writePublication,
   writeScene,
 } from "../src/storage.js";
 import { missingArrowhead } from "../src/tool-state.js";
@@ -57,6 +64,49 @@ test("published scene ids are strict and parse from share paths", () => {
   assert.equal(sceneIdFromPath("/s/not-an-id"), null);
   assert.equal(isEncodedScene("H4sIA_test-123"), true);
   assert.equal(isEncodedScene("not valid!"), false);
+});
+
+test("publication credentials survive local storage and reject malformed data", () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const publication = { id: "Abc_123-xYz9", editKey: "Abc_123-xYz9Abc_123-xYz9" };
+
+  assert.equal(isSceneEditKey(publication.editKey), true);
+  assert.equal(writePublication(storage, "publication", publication), true);
+  assert.deepEqual(readPublication(storage, "publication"), publication);
+  values.set("publication", '{"id":"not-an-id","editKey":"bad"}');
+  assert.equal(readPublication(storage, "publication"), null);
+});
+
+test("migrates the existing scene and publication into the first local work", () => {
+  const values = new Map([
+    ["story-canvas.scene.v1", JSON.stringify({ elements: [{ id: "hello" }] })],
+    ["story-canvas.publication.v1", JSON.stringify({
+      id: "Abc_123-xYz9",
+      editKey: "Abc_123-xYz9Abc_123-xYz9",
+    })],
+  ]);
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const id = "12345678-1234-4123-8123-123456789abc";
+  const workspace = initializeWorkStorage(storage, () => id, 123);
+
+  assert.deepEqual(workspace, {
+    activeWorkId: id,
+    works: [{ id, name: "未命名作品", updatedAt: 123 }],
+  });
+  assert.deepEqual(readScene(storage, sceneKeyForWork(id)), { elements: [{ id: "hello" }] });
+  assert.deepEqual(readPublication(storage, publicationKeyForWork(id)), {
+    id: "Abc_123-xYz9",
+    editKey: "Abc_123-xYz9Abc_123-xYz9",
+  });
+  assert.equal(storage.getItem(ACTIVE_WORK_STORAGE_KEY), id);
+  assert.deepEqual(initializeWorkStorage(storage, () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), workspace);
 });
 
 test("restores an arrowhead only for the arrow tool", () => {

@@ -1,3 +1,11 @@
+export const SCENE_STORAGE_KEY = "story-canvas.scene.v1";
+export const PUBLICATION_STORAGE_KEY = "story-canvas.publication.v1";
+export const WORKS_STORAGE_KEY = "story-canvas.works.v1";
+export const ACTIVE_WORK_STORAGE_KEY = "story-canvas.active-work.v1";
+
+export const sceneKeyForWork = (id) => `${SCENE_STORAGE_KEY}:${id}`;
+export const publicationKeyForWork = (id) => `${PUBLICATION_STORAGE_KEY}:${id}`;
+
 export function readScene(storage, key) {
   try {
     const scene = JSON.parse(storage.getItem(key));
@@ -14,6 +22,80 @@ export function writeScene(storage, key, scene) {
   } catch {
     return false;
   }
+}
+
+export function readPublication(storage, key) {
+  try {
+    const publication = JSON.parse(storage.getItem(key));
+    return isSceneId(publication?.id) && isSceneEditKey(publication?.editKey)
+      ? publication
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writePublication(storage, key, publication) {
+  try {
+    storage.setItem(key, JSON.stringify(publication));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readWorks(storage) {
+  try {
+    const works = JSON.parse(storage.getItem(WORKS_STORAGE_KEY));
+    if (!Array.isArray(works)) return [];
+    const ids = new Set();
+    return works.filter((work) => {
+      const valid = isWorkId(work?.id) &&
+        typeof work.name === "string" && Boolean(work.name.trim()) &&
+        Number.isFinite(work.updatedAt) && !ids.has(work.id);
+      if (valid) ids.add(work.id);
+      return valid;
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function writeWorks(storage, works) {
+  try {
+    storage.setItem(WORKS_STORAGE_KEY, JSON.stringify(works));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function initializeWorkStorage(storage, createId, now = Date.now()) {
+  const existing = readWorks(storage);
+  if (existing.length) {
+    const savedActiveId = storage.getItem(ACTIVE_WORK_STORAGE_KEY);
+    const activeWorkId = existing.some(({ id }) => id === savedActiveId)
+      ? savedActiveId
+      : existing[0].id;
+    try {
+      storage.setItem(ACTIVE_WORK_STORAGE_KEY, activeWorkId);
+    } catch {}
+    return { works: existing, activeWorkId };
+  }
+
+  const activeWorkId = createId();
+  const works = [{ id: activeWorkId, name: "未命名作品", updatedAt: now }];
+  const legacyScene = readScene(storage, SCENE_STORAGE_KEY);
+  const legacyPublication = readPublication(storage, PUBLICATION_STORAGE_KEY);
+  if (legacyScene) writeScene(storage, sceneKeyForWork(activeWorkId), legacyScene);
+  if (legacyPublication) {
+    writePublication(storage, publicationKeyForWork(activeWorkId), legacyPublication);
+  }
+  writeWorks(storage, works);
+  try {
+    storage.setItem(ACTIVE_WORK_STORAGE_KEY, activeWorkId);
+  } catch {}
+  return { works, activeWorkId };
 }
 
 export function serializeUnfoldScene(scene) {
@@ -45,6 +127,15 @@ export function isEncodedScene(value) {
 
 export function isSceneId(value) {
   return typeof value === "string" && /^(?:[\w-]{12}|[a-f0-9]{32})$/.test(value);
+}
+
+export function isSceneEditKey(value) {
+  return typeof value === "string" && /^[\w-]{24}$/.test(value);
+}
+
+export function isWorkId(value) {
+  return typeof value === "string" &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 }
 
 export function sceneIdFromPath(pathname) {
