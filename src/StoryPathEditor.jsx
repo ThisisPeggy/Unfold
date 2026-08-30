@@ -210,14 +210,14 @@ export default function StoryPathEditor({
                 <span className="story-camera-editing-badge">
                   {cameraPreviewing
                     ? "正在预览 A → B"
-                    : `${cameraEndpoint === "start" ? "第 1 步" : "第 2 步"} · ${cameraEndpoint === "start" ? "起始画面" : "结束画面"}`}
+                    : `正在编辑 · ${cameraEndpoint === "start" ? "起点 A" : "终点 B"}`}
                 </span>
               </div>
 
               <section className="story-camera-section story-camera-workflow">
                 <div className="story-camera-section__heading">
-                  <strong>{cameraEndpoint === "start" ? "1. 调整起始画面" : "2. 调整结束画面"}</strong>
-                  <span>在上方拖动，滚轮缩放</span>
+                  <strong>选择要编辑的画面</strong>
+                  <span>选中后拖动或缩放上方画面</span>
                 </div>
                 <div className="story-camera-capture" role="group" aria-label="镜头设置步骤">
                   <button
@@ -229,7 +229,7 @@ export default function StoryPathEditor({
                       setCameraPreviewing(false);
                     }}
                   >
-                    ① 起始画面
+                    起点 A
                   </button>
                   <button
                     type="button"
@@ -240,22 +240,15 @@ export default function StoryPathEditor({
                       setCameraPreviewing(false);
                     }}
                   >
-                    ② 结束画面
+                    终点 B
                   </button>
                 </div>
                 <button
                   type="button"
-                  className="story-camera-next"
-                  onClick={() => {
-                    if (cameraEndpoint === "start") {
-                      setCameraEndpoint("end");
-                      setCameraPreviewing(false);
-                    } else {
-                      previewCamera();
-                    }
-                  }}
+                  className="story-camera-play"
+                  onClick={previewCamera}
                 >
-                  {cameraEndpoint === "start" ? "下一步：调整结束画面 →" : "▶ 预览 A → B"}
+                  ▶ 预览 A → B
                 </button>
               </section>
 

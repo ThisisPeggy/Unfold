@@ -1783,12 +1783,12 @@ body,
   background: var(--tale-accent-soft);
 }
 
-.story-camera-editor .story-camera-next {
+.story-camera-editor .story-camera-play {
   color: #184e7a;
   background: var(--tale-accent-soft);
 }
 
-.story-camera-editor .story-camera-next:hover {
+.story-camera-editor .story-camera-play:hover {
   background: rgb(35 131 226 / 14%);
 }
 
