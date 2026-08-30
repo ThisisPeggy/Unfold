@@ -123,6 +123,7 @@ export function writeWorkspaceSnapshot(storage, value) {
 export function initializeWorkStorage(storage, createId, now = Date.now()) {
   const existing = readWorks(storage);
   if (existing.length) {
+    pruneStaleWorkStorage(storage, new Set(existing.map(({ id }) => id)));
     const savedActiveId = storage.getItem(ACTIVE_WORK_STORAGE_KEY);
     const activeWorkId = existing.some(({ id }) => id === savedActiveId)
       ? savedActiveId
@@ -137,15 +138,38 @@ export function initializeWorkStorage(storage, createId, now = Date.now()) {
   const works = [{ id: activeWorkId, name: "未命名作品", updatedAt: now }];
   const legacyScene = readScene(storage, SCENE_STORAGE_KEY);
   const legacyPublication = readPublication(storage, PUBLICATION_STORAGE_KEY);
-  if (legacyScene) writeScene(storage, sceneKeyForWork(activeWorkId), legacyScene);
-  if (legacyPublication) {
-    writePublication(storage, publicationKeyForWork(activeWorkId), legacyPublication);
+  if (legacyScene && writeScene(storage, sceneKeyForWork(activeWorkId), legacyScene)) {
+    storage.removeItem?.(SCENE_STORAGE_KEY);
   }
+  if (legacyPublication && writePublication(
+    storage,
+    publicationKeyForWork(activeWorkId),
+    legacyPublication,
+  )) storage.removeItem?.(PUBLICATION_STORAGE_KEY);
   writeWorks(storage, works);
   try {
     storage.setItem(ACTIVE_WORK_STORAGE_KEY, activeWorkId);
   } catch {}
   return { works, activeWorkId };
+}
+
+export function pruneStaleWorkStorage(storage, workIds) {
+  if (typeof storage.length !== "number" || typeof storage.key !== "function") return;
+  const stale = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key) continue;
+    const sceneId = key.startsWith(`${SCENE_STORAGE_KEY}:`)
+      ? key.slice(`${SCENE_STORAGE_KEY}:`.length)
+      : null;
+    const publicationId = key.startsWith(`${PUBLICATION_STORAGE_KEY}:`)
+      ? key.slice(`${PUBLICATION_STORAGE_KEY}:`.length)
+      : null;
+    if ((sceneId || publicationId) && !workIds.has(sceneId || publicationId)) stale.push(key);
+  }
+  stale.forEach((key) => storage.removeItem(key));
+  storage.removeItem?.(SCENE_STORAGE_KEY);
+  storage.removeItem?.(PUBLICATION_STORAGE_KEY);
 }
 
 export function serializeUnfoldScene(scene) {

@@ -1,5 +1,7 @@
-export const SUPABASE_CONFIG_STORAGE_KEY = "unfold.supabase.v1";
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
+const IMAGE_BUCKET = "unfold-images";
+// ponytail: cache uploads for this tab; add persisted hashes if refresh-time reuploads become costly.
+const uploadedImages = new Set();
 
 export const SUPABASE_SETUP_SQL = `create table if not exists public.unfold_user_workspace (
   user_id uuid primary key references auth.users(id) on delete cascade default auth.uid(),
@@ -25,7 +27,33 @@ drop policy if exists "Users update their own Unfold workspace" on public.unfold
 create policy "Users update their own Unfold workspace"
 on public.unfold_user_workspace for update to authenticated
 using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);`;
+with check ((select auth.uid()) = user_id);
+
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('unfold-images', 'unfold-images', false, 52428800)
+on conflict (id) do update set public = false;
+
+drop policy if exists "Users read their own Unfold images" on storage.objects;
+create policy "Users read their own Unfold images"
+on storage.objects for select to authenticated
+using (bucket_id = 'unfold-images' and owner_id = (select auth.uid()::text));
+
+drop policy if exists "Users upload their own Unfold images" on storage.objects;
+create policy "Users upload their own Unfold images"
+on storage.objects for insert to authenticated
+with check (
+  bucket_id = 'unfold-images' and
+  (storage.foldername(name))[1] = (select auth.uid()::text)
+);
+
+drop policy if exists "Users update their own Unfold images" on storage.objects;
+create policy "Users update their own Unfold images"
+on storage.objects for update to authenticated
+using (bucket_id = 'unfold-images' and owner_id = (select auth.uid()::text))
+with check (
+  bucket_id = 'unfold-images' and
+  (storage.foldername(name))[1] = (select auth.uid()::text)
+);`;
 
 export function normalizeSupabaseConfig({ url = "", key = "" }) {
   const parsed = new URL(url.trim());
@@ -37,6 +65,17 @@ export function normalizeSupabaseConfig({ url = "", key = "" }) {
   return { url: parsed.origin, key: normalizedKey };
 }
 
+export function supabaseConfigFromEnv(env = {}) {
+  try {
+    return normalizeSupabaseConfig({
+      url: env.VITE_SUPABASE_URL,
+      key: env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSession(value) {
   if (
     typeof value?.accessToken !== "string" ||
@@ -45,23 +84,6 @@ function normalizeSession(value) {
     typeof value?.user?.id !== "string"
   ) return null;
   return value;
-}
-
-export function readSupabaseConfig(storage) {
-  try {
-    return normalizeSupabaseConfig(JSON.parse(storage.getItem(SUPABASE_CONFIG_STORAGE_KEY)));
-  } catch {
-    return null;
-  }
-}
-
-export function writeSupabaseConfig(storage, config) {
-  try {
-    storage.setItem(SUPABASE_CONFIG_STORAGE_KEY, JSON.stringify(config));
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function readSupabaseSession(storage) {
@@ -155,10 +177,12 @@ export async function pullSupabaseWorkspace(config, session, fetcher = fetch) {
     { headers: headers(config, session) },
   ));
   const rows = await response.json();
-  return rows[0]?.payload ?? null;
+  const payload = rows[0]?.payload ?? null;
+  return payload ? downloadWorkspaceImages(config, session, payload, fetcher) : null;
 }
 
 export async function pushSupabaseWorkspace(config, session, payload, fetcher = fetch) {
+  const cloudPayload = await uploadWorkspaceImages(config, session, payload, fetcher);
   await requireSuccess(await fetcher(`${config.url}/rest/v1/unfold_user_workspace`, {
     method: "POST",
     headers: {
@@ -167,8 +191,68 @@ export async function pushSupabaseWorkspace(config, session, payload, fetcher = 
     },
     body: JSON.stringify({
       user_id: session.user.id,
-      payload,
+      payload: cloudPayload,
       updated_at: new Date(payload.updatedAt).toISOString(),
     }),
   }));
+}
+
+async function uploadWorkspaceImages(config, session, payload, fetcher) {
+  const scenes = {};
+  for (const [workId, scene] of Object.entries(payload.scenes ?? {})) {
+    const files = {};
+    for (const [fileId, file] of Object.entries(scene.files ?? {})) {
+      const storagePath = `${session.user.id}/${fileId}`;
+      if (file.dataURL && !uploadedImages.has(storagePath)) {
+        const blob = await (await fetcher(file.dataURL)).blob();
+        const response = await fetcher(
+          `${config.url}/storage/v1/object/${IMAGE_BUCKET}/${storagePath}`,
+          {
+            method: "POST",
+            headers: {
+              ...headers(config, session),
+              "Content-Type": blob.type || file.mimeType || "application/octet-stream",
+              "x-upsert": "true",
+            },
+            body: blob,
+          },
+        );
+        if (!response.ok) throw new Error(`图片上传失败（${response.status}）`);
+        uploadedImages.add(storagePath);
+      }
+      const { dataURL: _dataURL, ...metadata } = file;
+      files[fileId] = { ...metadata, storagePath };
+    }
+    scenes[workId] = { ...scene, files };
+  }
+  return { ...payload, scenes };
+}
+
+async function downloadWorkspaceImages(config, session, payload, fetcher) {
+  const scenes = {};
+  for (const [workId, scene] of Object.entries(payload.scenes ?? {})) {
+    const files = {};
+    for (const [fileId, file] of Object.entries(scene.files ?? {})) {
+      if (!file.storagePath || file.dataURL) {
+        files[fileId] = file;
+        continue;
+      }
+      const response = await fetcher(
+        `${config.url}/storage/v1/object/authenticated/${IMAGE_BUCKET}/${file.storagePath}`,
+        { headers: headers(config, session) },
+      );
+      if (!response.ok) throw new Error(`图片下载失败（${response.status}）`);
+      const blob = await response.blob();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      files[fileId] = {
+        ...file,
+        dataURL: `data:${blob.type || file.mimeType};base64,${btoa(binary)}`,
+      };
+      uploadedImages.add(file.storagePath);
+    }
+    scenes[workId] = { ...scene, files };
+  }
+  return { ...payload, scenes };
 }

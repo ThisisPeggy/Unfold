@@ -7,6 +7,7 @@ import {
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
+  supabaseConfigFromEnv,
   SUPABASE_SETUP_SQL,
 } from "../src/supabase-sync.js";
 
@@ -39,6 +40,45 @@ test("accepts browser-safe Supabase settings and rejects secret keys", () => {
   assert.match(SUPABASE_SETUP_SQL, /enable row level security/);
   assert.match(SUPABASE_SETUP_SQL, /auth\.uid\(\)/);
   assert.match(SUPABASE_SETUP_SQL, /to authenticated/);
+  assert.match(SUPABASE_SETUP_SQL, /storage\.buckets/);
+  assert.deepEqual(supabaseConfigFromEnv({
+    VITE_SUPABASE_URL: config.url,
+    VITE_SUPABASE_PUBLISHABLE_KEY: config.key,
+  }), config);
+  assert.equal(supabaseConfigFromEnv({}), null);
+});
+
+test("stores images in a private bucket instead of workspace JSON", async () => {
+  const payload = {
+    version: 1,
+    updatedAt: 123,
+    scenes: {
+      work: {
+        files: {
+          image: { mimeType: "text/plain", dataURL: "data:text/plain;base64,aGk=" },
+        },
+      },
+    },
+  };
+  let cloudPayload;
+  const uploadFetcher = async (url, options) => {
+    if (url.startsWith("data:")) return fetch(url);
+    if (url.includes("/storage/v1/object/")) return new Response(null, { status: 200 });
+    cloudPayload = JSON.parse(options.body).payload;
+    return new Response(null, { status: 201 });
+  };
+  await pushSupabaseWorkspace(config, session, payload, uploadFetcher);
+  assert.equal(cloudPayload.scenes.work.files.image.dataURL, undefined);
+  assert.equal(
+    cloudPayload.scenes.work.files.image.storagePath,
+    `${session.user.id}/image`,
+  );
+
+  const downloadFetcher = async (url) => url.includes("/rest/v1/")
+    ? new Response(JSON.stringify([{ payload: cloudPayload }]), { status: 200 })
+    : new Response("hi", { status: 200, headers: { "Content-Type": "text/plain" } });
+  const restored = await pullSupabaseWorkspace(config, session, downloadFetcher);
+  assert.equal(restored.scenes.work.files.image.dataURL, "data:text/plain;base64,aGk=");
 });
 
 test("signs in, signs up, and refreshes through Supabase Auth", async () => {
@@ -59,7 +99,7 @@ test("signs in, signs up, and refreshes through Supabase Auth", async () => {
 });
 
 test("pulls and upserts the signed-in user's workspace", async () => {
-  const payload = { version: 1, updatedAt: 123 };
+  const payload = { version: 1, updatedAt: 123, scenes: {} };
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, options });

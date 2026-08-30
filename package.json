@@ -7,6 +7,7 @@
     "postinstall": "node scripts/patch-excalidraw-fonts.mjs",
     "dev": "vite --force --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
+    "setup:supabase": "node scripts/print-supabase-sql.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

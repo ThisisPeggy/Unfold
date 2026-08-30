@@ -31,6 +31,7 @@ import {
   isSceneId,
   parseUnfoldScene,
   parseWorkspaceSnapshot,
+  pruneStaleWorkStorage,
   publicationKeyForWork,
   readPublication,
   readScene,
@@ -43,18 +44,14 @@ import {
   writeWorks,
 } from "./storage.js";
 import {
-  normalizeSupabaseConfig,
   pullSupabaseWorkspace,
   pushSupabaseWorkspace,
-  readSupabaseConfig,
   readSupabaseSession,
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
-  SUPABASE_CONFIG_STORAGE_KEY,
   SUPABASE_SESSION_STORAGE_KEY,
-  SUPABASE_SETUP_SQL,
-  writeSupabaseConfig,
+  supabaseConfigFromEnv,
   writeSupabaseSession,
 } from "./supabase-sync.js";
 import { missingArrowhead } from "./tool-state.js";
@@ -1798,27 +1795,15 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
-function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect, status }) {
-  const [url, setUrl] = useState(config?.url ?? "");
-  const [key, setKey] = useState(config?.key ?? "");
+function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconnect, status }) {
   const [email, setEmail] = useState(session?.user?.email ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [projectReady, setProjectReady] = useState(Boolean(config));
-
-  const continueToLogin = (event) => {
-    event.preventDefault();
-    setError("");
-    try {
-      normalizeSupabaseConfig({ url, key });
-      setProjectReady(true);
-    } catch (configurationError) {
-      setError(configurationError.message || "请检查项目配置。");
-    }
-  };
+  const [showPassword, setShowPassword] = useState(false);
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const passwordValid = password.length >= 6;
 
   const connect = async (event, mode = "signin") => {
     event.preventDefault();
@@ -1826,7 +1811,7 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
     setError("");
     setNotice("");
     try {
-      const result = await onConnect({ url, key, email, password, mode });
+      const result = await onConnect({ email, password, mode });
       if (result?.pending) setNotice("注册成功。请先查收验证邮件，然后回来登录。");
     } catch (connectionError) {
       setError(connectionError.message || "连接失败，请检查配置。");
@@ -1835,26 +1820,20 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
     }
   };
 
-  const copySql = async () => {
-    try {
-      await navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      window.prompt("复制这段 SQL", SUPABASE_SETUP_SQL);
-    }
-  };
-
   return (
     <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title="云同步">
       <div className="supabase-sync-dialog__hero">
+        <span className="supabase-sync-dialog__icon" aria-hidden="true">
+          <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24">
+            <path d="M7.5 18.5h9a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 6.5 9a4.75 4.75 0 0 0 1 9.5Z" />
+            <path d="m9.5 14 2.5 2.5 3.5-4" />
+          </svg>
+        </span>
         <div>
-          <h3>{session ? "云同步已开启" : projectReady ? "登录 Supabase" : "连接你的 Supabase"}</h3>
+          <h3>{session ? "云同步已开启" : "登录后同步作品"}</h3>
           <p>{session
             ? "你的作品会自动保存到这个账号。"
-            : projectReady
-              ? "登录后才会读取和保存云端作品。"
-              : "先连接项目。本地使用始终无需登录。"}</p>
+            : "换一台设备登录，也能继续编辑。无需同步时可直接使用画布。"}</p>
         </div>
         {session && (
           <span className={`supabase-sync-dialog__badge supabase-sync-dialog__badge--${status}`}>
@@ -1864,108 +1843,86 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
         )}
       </div>
 
-      {!session && !projectReady && <div className="supabase-sync-dialog__setup">
-        <section>
-          <span className="supabase-sync-dialog__step">1</span>
-          <div>
-            <strong>创建项目</strong>
-            <p>在 Supabase 免费创建一个项目。</p>
-          </div>
-          <a href="https://supabase.com/dashboard" rel="noreferrer" target="_blank">
-            打开 Supabase <span aria-hidden="true">↗</span>
-          </a>
-        </section>
-        <section>
-          <span className="supabase-sync-dialog__step">2</span>
-          <div>
-            <strong>初始化数据库</strong>
-            <p>复制后粘贴到项目的 SQL Editor 运行。</p>
-          </div>
-          <button className="supabase-sync-dialog__sql" onClick={copySql} type="button">
-            <span aria-hidden="true">{copied ? "✓" : "⌘"}</span>
-            {copied ? "已复制" : "复制 SQL"}
-          </button>
-        </section>
-      </div>}
+      {!session && !available && (
+        <p className="supabase-sync-dialog__unavailable" role="alert">云同步尚未完成配置。</p>
+      )}
 
-      {!session && !projectReady && <form onSubmit={continueToLogin}>
-        <div className="supabase-sync-dialog__form-heading">
-          <strong>项目配置</strong>
-          <p>在 Supabase 的 Connect 面板中找到以下两项。</p>
-        </div>
-        <label>
-          <span>Project URL</span>
-          <input
-            autoComplete="url"
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://xxxx.supabase.co"
-            required
-            type="url"
-            value={url}
-          />
-        </label>
-        <label>
-          <span>Publishable Key</span>
-          <input
-            autoComplete="off"
-            onChange={(event) => setKey(event.target.value)}
-            placeholder="sb_publishable_…"
-            required
-            type="password"
-            value={key}
-          />
-        </label>
-        <small>请勿填写 Secret Key 或 Service Role Key。</small>
-        {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
-        <div className="unfold-dialog__actions">
-          <button className="unfold-dialog__primary" type="submit">继续</button>
-        </div>
-      </form>}
-
-      {!session && projectReady && <form onSubmit={connect}>
-        <div className="supabase-sync-dialog__project">
-          <div>
-            <span>当前项目</span>
-            <strong>{url.replace(/^https?:\/\//, "")}</strong>
-          </div>
-          <button onClick={() => {
-            setProjectReady(false);
-            setError("");
-            setNotice("");
-          }} type="button">更换</button>
-        </div>
-        <label>
+      {!session && available && <form onSubmit={connect}>
+        <label className="supabase-sync-dialog__field" htmlFor="supabase-email">
           <span>邮箱</span>
-          <input
-            autoComplete="email"
-            onChange={(event) => setEmail(event.target.value)}
-            required
-            type="email"
-            value={email}
-          />
+          <div className={`supabase-sync-dialog__input ${error ? "is-error" : ""}`}>
+            <svg className="supabase-sync-dialog__input-icon" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
+              <path d="m5 7 7 5 7-5" />
+            </svg>
+            <input
+              aria-describedby="supabase-auth-message"
+              aria-invalid={Boolean(error)}
+              autoComplete="email"
+              id="supabase-email"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="name@example.com"
+              required
+              type="email"
+              value={email}
+            />
+            {emailValid && !error && (
+              <svg className="supabase-sync-dialog__success" aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.25" viewBox="0 0 24 24">
+                <path d="m5.5 12.5 4 4 9-9" />
+              </svg>
+            )}
+          </div>
         </label>
-        <label>
+        <label className="supabase-sync-dialog__field" htmlFor="supabase-password">
           <span>密码</span>
-          <input
-            autoComplete="current-password"
-            minLength="6"
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
+          <div className={`supabase-sync-dialog__input ${error ? "is-error" : ""}`}>
+            <svg className="supabase-sync-dialog__input-icon" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <rect x="5" y="10" width="14" height="10" rx="2.5" />
+              <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" />
+            </svg>
+            <input
+              aria-describedby="supabase-auth-message"
+              aria-invalid={Boolean(error)}
+              autoComplete="current-password"
+              id="supabase-password"
+              minLength="6"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="至少 6 位"
+              required
+              type={showPassword ? "text" : "password"}
+              value={password}
+            />
+            <button
+              aria-label={showPassword ? "隐藏密码" : "显示密码"}
+              className="supabase-sync-dialog__reveal"
+              onClick={() => setShowPassword((value) => !value)}
+              type="button"
+            >
+              <svg aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24">
+                {showPassword
+                  ? <><path d="M4 4 20 20" /><path d="M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A10.7 10.7 0 0 1 12 5c5.5 0 9 7 9 7a16.6 16.6 0 0 1-2.1 3M6.6 6.6C4.3 8.2 3 12 3 12s3.5 7 9 7a9.8 9.8 0 0 0 4-.9" /></>
+                  : <><path d="M3 12s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7Z" /><circle cx="12" cy="12" r="2.5" /></>}
+              </svg>
+            </button>
+          </div>
         </label>
-        <small>登录状态仅保存在当前浏览器。</small>
-        {notice && <p className="supabase-sync-dialog__notice" role="status">{notice}</p>}
-        {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
-        <div className="unfold-dialog__actions">
-          <button disabled={busy} onClick={(event) => connect(event, "signup")} type="button">
-            创建账号
-          </button>
+        <div className="supabase-sync-dialog__message" id="supabase-auth-message">
+          {notice && <p className="supabase-sync-dialog__notice" role="status">{notice}</p>}
+          {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
+          {!notice && !error && password && !passwordValid && <p>密码至少需要 6 位。</p>}
+        </div>
+        <div className="supabase-sync-dialog__auth-actions">
           <button className="unfold-dialog__primary" disabled={busy} type="submit">
             {busy ? "正在验证…" : "登录并开始同步"}
           </button>
         </div>
+        <p className="supabase-sync-dialog__switch">
+          还没有账号？
+          <button disabled={busy} onClick={(event) => connect(event, "signup")} type="button">
+            创建账号
+          </button>
+        </p>
+        <small className="supabase-sync-dialog__privacy">登录仅用于云同步，本地画布始终可以直接使用。</small>
       </form>}
 
       {session && (
@@ -2164,8 +2121,9 @@ function App() {
   const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [supabaseOpen, setSupabaseOpen] = useState(false);
-  const [supabaseConfig, setSupabaseConfig] = useState(
-    () => isShared ? null : readSupabaseConfig(localStorage),
+  const supabaseConfig = useMemo(
+    () => isShared ? null : supabaseConfigFromEnv(import.meta.env),
+    [isShared],
   );
   const [supabaseSession, setSupabaseSession] = useState(
     () => isShared ? null : readSupabaseSession(localStorage),
@@ -2364,15 +2322,14 @@ function App() {
   }, [applyCloudWorkspace, ensureSupabaseSession]);
 
   const connectSupabase = useCallback(async (settings) => {
-    const config = normalizeSupabaseConfig(settings);
+    const config = supabaseConfig;
+    if (!config) throw new Error("云同步尚未完成配置。");
     setSupabaseState("syncing");
     try {
       const authResult = settings.mode === "signup"
         ? await signUpSupabase(config, settings.email, settings.password)
         : { session: await signInSupabase(config, settings.email, settings.password) };
       if (!authResult.session) {
-        writeSupabaseConfig(localStorage, config);
-        setSupabaseConfig(config);
         setSupabaseState("idle");
         return { pending: true };
       }
@@ -2394,15 +2351,11 @@ function App() {
       } else {
         await pushSupabaseWorkspace(config, auth, local);
       }
-      if (
-        !writeSupabaseConfig(localStorage, config) ||
-        !writeSupabaseSession(localStorage, auth)
-      ) {
+      if (!writeSupabaseSession(localStorage, auth)) {
         throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
       supabaseSessionRef.current = auth;
       supabaseReady.current = true;
-      setSupabaseConfig(config);
       setSupabaseSession(auth);
       setSupabaseState("connected");
       return { pending: false };
@@ -2411,15 +2364,13 @@ function App() {
       setSupabaseState("error");
       throw error;
     }
-  }, [applyCloudWorkspace]);
+  }, [applyCloudWorkspace, supabaseConfig]);
 
   const disconnectSupabase = useCallback(() => {
     window.clearTimeout(supabaseTimer.current);
-    localStorage.removeItem(SUPABASE_CONFIG_STORAGE_KEY);
     localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
     supabaseReady.current = false;
     supabaseSessionRef.current = null;
-    setSupabaseConfig(null);
     setSupabaseSession(null);
     setSupabaseState("idle");
   }, []);
@@ -3043,6 +2994,7 @@ function App() {
       const id = crypto.randomUUID();
       const name = file.name.replace(/\.(?:unfold|excalidraw)$/i, "").trim() || `作品 ${works.length + 1}`;
       const nextWorks = [...works, { id, name: name.slice(0, 80), updatedAt: Date.now() }];
+      pruneStaleWorkStorage(localStorage, new Set(works.map((work) => work.id)));
       if (!writeScene(localStorage, sceneKeyForWork(id), nextScene) ||
         !writeWorks(localStorage, nextWorks)) {
         localStorage.removeItem(sceneKeyForWork(id));
@@ -3784,7 +3736,7 @@ function App() {
       )}
       {!preview && supabaseOpen && (
         <SupabaseSyncDialog
-          config={supabaseConfig}
+          available={Boolean(supabaseConfig)}
           session={supabaseSession}
           onClose={() => setSupabaseOpen(false)}
           onConnect={connectSupabase}
