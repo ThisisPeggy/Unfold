@@ -1,5 +1,3 @@
-import { deflate, inflate } from "pako";
-
 export const SCENE_STORAGE_KEY = "story-canvas.scene.v1";
 export const PUBLICATION_STORAGE_KEY = "story-canvas.publication.v1";
 export const WORKS_STORAGE_KEY = "story-canvas.works.v1";
@@ -9,29 +7,116 @@ export const WORKSPACE_UPDATED_STORAGE_KEY = "story-canvas.workspace-updated.v1"
 export const sceneKeyForWork = (id) => `${SCENE_STORAGE_KEY}:${id}`;
 export const publicationKeyForWork = (id) => `${PUBLICATION_STORAGE_KEY}:${id}`;
 const COMPRESSED_SCENE_PREFIX = "gzip:";
+const SCENE_DATABASE_NAME = "unfold";
+const SCENE_STORE_NAME = "scenes";
+let sceneDatabase = null;
+let sceneCache = null;
+let sceneWriteQueue = Promise.resolve();
 
-function encodeStoredScene(scene) {
-  const json = JSON.stringify(scene);
-  if (json.length < 50_000) return json;
-  const bytes = deflate(new TextEncoder().encode(json), { level: 1 });
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 32768) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
-  }
-  const compressed = `${COMPRESSED_SCENE_PREFIX}${btoa(binary)}`;
-  return compressed.length < json.length ? compressed : json;
+function requestResult(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 function decodeStoredScene(value) {
   if (!value?.startsWith(COMPRESSED_SCENE_PREFIX)) return JSON.parse(value);
   const binary = atob(value.slice(COMPRESSED_SCENE_PREFIX.length));
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  return JSON.parse(new TextDecoder().decode(inflate(bytes)));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Response(stream).text().then(JSON.parse);
+}
+
+function transactionDone(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = resolve;
+    transaction.onabort = transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function sceneForDatabase(scene) {
+  const files = await Promise.all(Object.entries(scene.files ?? {}).map(async ([id, file]) => {
+    if (!file.dataURL) return [id, file];
+    const { dataURL, ...metadata } = file;
+    return [id, { ...metadata, blob: await (await fetch(dataURL)).blob() }];
+  }));
+  return { ...scene, files: Object.fromEntries(files) };
+}
+
+async function sceneFromDatabase(scene) {
+  const files = await Promise.all(Object.entries(scene.files ?? {}).map(async ([id, file]) => {
+    if (!file.blob || file.dataURL) return [id, file];
+    const { blob, ...metadata } = file;
+    return [id, { ...metadata, dataURL: await blobToDataUrl(blob) }];
+  }));
+  return { ...scene, files: Object.fromEntries(files) };
+}
+
+async function putScene(key, scene) {
+  const storedScene = await sceneForDatabase(scene);
+  const transaction = sceneDatabase.transaction(SCENE_STORE_NAME, "readwrite");
+  const done = transactionDone(transaction);
+  transaction.objectStore(SCENE_STORE_NAME).put(storedScene, key);
+  await done;
+}
+
+function queueSceneWrite(action) {
+  const result = sceneWriteQueue.then(action, action);
+  sceneWriteQueue = result.catch(() => {});
+  return result;
+}
+
+export async function initializeSceneStorage(storage, indexedDb = globalThis.indexedDB) {
+  if (!indexedDb) return false;
+  try {
+    const request = indexedDb.open(SCENE_DATABASE_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(SCENE_STORE_NAME);
+    sceneDatabase = await requestResult(request);
+    sceneDatabase.onversionchange = () => sceneDatabase.close();
+
+    const localKeys = Array.from({ length: storage.length }, (_, index) => storage.key(index))
+      .filter((key) => key === SCENE_STORAGE_KEY || key?.startsWith(`${SCENE_STORAGE_KEY}:`));
+    for (const key of localKeys) {
+      try {
+        const scene = await decodeStoredScene(storage.getItem(key));
+        if (scene && Array.isArray(scene.elements)) await putScene(key, scene);
+      } catch {}
+    }
+    localKeys.forEach((key) => storage.removeItem(key));
+
+    const transaction = sceneDatabase.transaction(SCENE_STORE_NAME);
+    const store = transaction.objectStore(SCENE_STORE_NAME);
+    const [keys, scenes] = await Promise.all([
+      requestResult(store.getAllKeys()),
+      requestResult(store.getAll()),
+      transactionDone(transaction),
+    ]);
+    sceneCache = new Map(await Promise.all(keys.map(async (key, index) => [
+      key,
+      await sceneFromDatabase(scenes[index]),
+    ])));
+    return true;
+  } catch {
+    sceneDatabase?.close();
+    sceneDatabase = sceneCache = null;
+    return false;
+  }
 }
 
 export function readScene(storage, key) {
   try {
-    const scene = decodeStoredScene(storage.getItem(key));
+    const scene = sceneCache?.get(key) ?? decodeStoredScene(storage.getItem(key));
+    if (scene instanceof Promise) return null;
     return scene && Array.isArray(scene.elements) ? scene : null;
   } catch {
     return null;
@@ -39,8 +124,24 @@ export function readScene(storage, key) {
 }
 
 export function writeScene(storage, key, scene) {
+  if (sceneDatabase) {
+    const previous = sceneCache.get(key);
+    sceneCache.set(key, scene);
+    return queueSceneWrite(async () => {
+      try {
+        await putScene(key, scene);
+        return true;
+      } catch {
+        if (sceneCache.get(key) === scene) {
+          if (previous) sceneCache.set(key, previous);
+          else sceneCache.delete(key);
+        }
+        return false;
+      }
+    });
+  }
   try {
-    storage.setItem(key, encodeStoredScene(scene));
+    storage.setItem(key, JSON.stringify(scene));
     return true;
   } catch {
     return false;
@@ -129,11 +230,11 @@ export function parseWorkspaceSnapshot(value) {
   return { ...value, works };
 }
 
-export function writeWorkspaceSnapshot(storage, value) {
+export async function writeWorkspaceSnapshot(storage, value) {
   const snapshot = parseWorkspaceSnapshot(value);
   if (!snapshot) return false;
   for (const work of snapshot.works) {
-    if (!writeScene(storage, sceneKeyForWork(work.id), snapshot.scenes[work.id])) return false;
+    if (!await writeScene(storage, sceneKeyForWork(work.id), snapshot.scenes[work.id])) return false;
   }
   if (!writeWorks(storage, snapshot.works, snapshot.updatedAt)) return false;
   try {
@@ -147,7 +248,7 @@ export function writeWorkspaceSnapshot(storage, value) {
 export function initializeWorkStorage(storage, createId, now = Date.now()) {
   const existing = readWorks(storage);
   if (existing.length) {
-    pruneStaleWorkStorage(storage, new Set(existing.map(({ id }) => id)));
+    void pruneStaleWorkStorage(storage, new Set(existing.map(({ id }) => id)));
     const savedActiveId = storage.getItem(ACTIVE_WORK_STORAGE_KEY);
     const activeWorkId = existing.some(({ id }) => id === savedActiveId)
       ? savedActiveId
@@ -177,7 +278,26 @@ export function initializeWorkStorage(storage, createId, now = Date.now()) {
   return { works, activeWorkId };
 }
 
-export function pruneStaleWorkStorage(storage, workIds) {
+export async function removeScene(storage, key) {
+  sceneCache?.delete(key);
+  if (!sceneDatabase) {
+    storage.removeItem?.(key);
+    return true;
+  }
+  return queueSceneWrite(async () => {
+    try {
+      const transaction = sceneDatabase.transaction(SCENE_STORE_NAME, "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(SCENE_STORE_NAME).delete(key);
+      await done;
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+export async function pruneStaleWorkStorage(storage, workIds) {
   if (typeof storage.length !== "number" || typeof storage.key !== "function") return;
   const stale = [];
   for (let index = 0; index < storage.length; index += 1) {
@@ -191,8 +311,16 @@ export function pruneStaleWorkStorage(storage, workIds) {
       : null;
     if ((sceneId || publicationId) && !workIds.has(sceneId || publicationId)) stale.push(key);
   }
-  stale.forEach((key) => storage.removeItem(key));
-  storage.removeItem?.(SCENE_STORAGE_KEY);
+  for (const key of sceneCache?.keys() ?? []) {
+    const sceneId = key.startsWith(`${SCENE_STORAGE_KEY}:`)
+      ? key.slice(`${SCENE_STORAGE_KEY}:`.length)
+      : null;
+    if (sceneId && !workIds.has(sceneId) && !stale.includes(key)) stale.push(key);
+  }
+  await Promise.all(stale.map((key) => key.startsWith(`${SCENE_STORAGE_KEY}:`)
+    ? removeScene(storage, key)
+    : storage.removeItem(key)));
+  await removeScene(storage, SCENE_STORAGE_KEY);
   storage.removeItem?.(PUBLICATION_STORAGE_KEY);
 }
 

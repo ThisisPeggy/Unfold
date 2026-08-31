@@ -6,6 +6,7 @@ import {
   decodeScene,
   encodeScene,
   initializeWorkStorage,
+  initializeSceneStorage,
   isEncodedScene,
   isSceneEditKey,
   isSceneId,
@@ -38,8 +39,18 @@ test("scene storage survives invalid and valid local data", () => {
 
   const largeScene = { ...scene, elements: [{ id: "large", text: "想法".repeat(30_000) }] };
   assert.equal(writeScene(storage, "large", largeScene), true);
-  assert.match(values.get("large"), /^gzip:/);
   assert.deepEqual(readScene(storage, "large"), largeScene);
+});
+
+test("keeps local storage working when IndexedDB is unavailable", async () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  assert.equal(await initializeSceneStorage(storage, null), false);
+  assert.equal(writeScene(storage, "scene", { elements: [] }), true);
+  assert.deepEqual(readScene(storage, "scene"), { elements: [] });
 });
 
 test("UNFOLD files preserve the complete scene and reject other JSON", () => {
@@ -136,7 +147,7 @@ test("migrates the existing scene and publication into the first local work", ()
   assert.deepEqual(initializeWorkStorage(storage, () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), workspace);
 });
 
-test("round-trips a complete cloud workspace snapshot", () => {
+test("round-trips a complete cloud workspace snapshot", async () => {
   const values = new Map();
   const storage = {
     getItem: (key) => values.get(key) ?? null,
@@ -150,7 +161,7 @@ test("round-trips a complete cloud workspace snapshot", () => {
   const snapshot = createWorkspaceSnapshot(storage, works, id);
   assert.deepEqual(parseWorkspaceSnapshot(snapshot), snapshot);
   values.clear();
-  assert.equal(writeWorkspaceSnapshot(storage, snapshot), true);
+  assert.equal(await writeWorkspaceSnapshot(storage, snapshot), true);
   assert.deepEqual(readScene(storage, sceneKeyForWork(id)), scene);
   assert.equal(storage.getItem(ACTIVE_WORK_STORAGE_KEY), id);
 });

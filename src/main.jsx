@@ -26,10 +26,12 @@ import {
   createWorkspaceSnapshot,
   decodeScene,
   initializeWorkStorage,
+  initializeSceneStorage,
   parseUnfoldScene,
   parseWorkspaceSnapshot,
   pruneStaleWorkStorage,
   publicationKeyForWork,
+  removeScene,
   readPublication,
   readScene,
   sceneIdFromPath,
@@ -2122,8 +2124,8 @@ function App() {
     window.clearTimeout(saveTimer.current);
     const revision = ++saveRevision.current;
     const workId = activeWorkId.current;
-    saveTimer.current = window.setTimeout(() => {
-      if (!writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
+    saveTimer.current = window.setTimeout(async () => {
+      if (!await writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
         if (revision === saveRevision.current) setSaveError(true);
         return;
       }
@@ -2138,7 +2140,7 @@ function App() {
     }, 400);
   }, []);
 
-  const openWork = useCallback((workId, restoringCloud = false) => {
+  const openWork = useCallback(async (workId, restoringCloud = false) => {
     setWorksOpen(false);
     if (workId === activeWorkId.current && !restoringCloud) {
       setPreview(false);
@@ -2147,7 +2149,7 @@ function App() {
     window.clearTimeout(saveTimer.current);
     saveRevision.current += 1;
     if (!restoringCloud) {
-      writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current);
+      await writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current);
     }
     localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, workId);
     activeWorkId.current = workId;
@@ -2173,14 +2175,14 @@ function App() {
     }
   }, [excalidrawAPI, preview]);
 
-  const applyCloudWorkspace = useCallback((value) => {
+  const applyCloudWorkspace = useCallback(async (value) => {
     const snapshot = parseWorkspaceSnapshot(value);
     if (!snapshot) throw new Error("云端作品数据格式无效。");
-    if (!writeWorkspaceSnapshot(localStorage, snapshot)) {
+    if (!await writeWorkspaceSnapshot(localStorage, snapshot)) {
       throw new Error("浏览器存储空间不足，无法下载云端作品。");
     }
     setWorks(snapshot.works);
-    openWork(snapshot.activeWorkId, true);
+    await openWork(snapshot.activeWorkId, true);
   }, [openWork]);
 
   const ensureSupabaseSession = useCallback(async (config) => {
@@ -2209,7 +2211,7 @@ function App() {
       if (cloud) {
         const snapshot = parseWorkspaceSnapshot(cloud);
         if (!snapshot) throw new Error("云端作品数据格式无效。");
-        if (snapshot.updatedAt > local.updatedAt) applyCloudWorkspace(snapshot);
+        if (snapshot.updatedAt > local.updatedAt) await applyCloudWorkspace(snapshot);
         else if (snapshot.updatedAt < local.updatedAt) {
           await pushSupabaseWorkspace(config, auth, local);
         }
@@ -2250,7 +2252,7 @@ function App() {
         const useCloud = window.confirm(
           "云端已有作品。\n\n确定：下载云端作品并替换本地作品库\n取消：保留本地作品并上传到云端",
         );
-        if (useCloud) applyCloudWorkspace(snapshot);
+        if (useCloud) await applyCloudWorkspace(snapshot);
         else await pushSupabaseWorkspace(config, auth, local);
       } else {
         await pushSupabaseWorkspace(config, auth, local);
@@ -2309,7 +2311,7 @@ function App() {
     return () => window.clearTimeout(supabaseTimer.current);
   }, [ensureSupabaseSession, supabaseConfig, supabaseSession, works]);
 
-  const createWork = useCallback(() => {
+  const createWork = useCallback(async () => {
     if (!supabaseSessionRef.current) {
       if (!window.confirm("尚未登录。新建会清空当前画布，且无法恢复。确定继续吗？")) return;
       const appState = {
@@ -2338,7 +2340,7 @@ function App() {
       window.alert(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除一个作品再新建。`);
       return;
     }
-    if (!writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current)) {
+    if (!await writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current)) {
       window.alert("当前作品保存失败，已停止新建。");
       return;
     }
@@ -2360,18 +2362,18 @@ function App() {
       files: {},
       storyPath: [],
     };
-    if (!writeScene(localStorage, sceneKeyForWork(id), nextScene)) {
+    if (!await writeScene(localStorage, sceneKeyForWork(id), nextScene)) {
       window.alert("无法保存新作品，请检查浏览器存储空间。");
       return;
     }
     const nextWorks = [...works, { id, name, updatedAt: Date.now() }];
     if (!writeWorks(localStorage, nextWorks)) {
-      localStorage.removeItem(sceneKeyForWork(id));
+      await removeScene(localStorage, sceneKeyForWork(id));
       window.alert("无法保存新作品，请检查浏览器存储空间。");
       return;
     }
     setWorks(nextWorks);
-    openWork(id);
+    await openWork(id);
   }, [excalidrawAPI, openWork, persistScene, works]);
 
   const renameWork = useCallback((workId) => {
@@ -2389,7 +2391,7 @@ function App() {
     setWorks(nextWorks);
   }, [works]);
 
-  const deleteWork = useCallback((workId) => {
+  const deleteWork = useCallback(async (workId) => {
     if (works.length === 1) {
       window.alert("至少保留一个作品。");
       return;
@@ -2405,10 +2407,10 @@ function App() {
       return;
     }
     if (workId === activeWorkId.current) {
-      openWork(nextWorks[0].id);
+      await openWork(nextWorks[0].id);
       setWorksOpen(true);
     }
-    localStorage.removeItem(sceneKeyForWork(workId));
+    await removeScene(localStorage, sceneKeyForWork(workId));
     localStorage.removeItem(publicationKeyForWork(workId));
     setWorks(nextWorks);
   }, [openWork, works]);
@@ -2966,15 +2968,15 @@ function App() {
     const id = crypto.randomUUID();
     const name = file.name.replace(/\.(?:unfold|excalidraw)$/i, "").trim() || `作品 ${works.length + 1}`;
     const nextWorks = [...works, { id, name: name.slice(0, 80), updatedAt: Date.now() }];
-    pruneStaleWorkStorage(localStorage, new Set(works.map((work) => work.id)));
-    if (!writeScene(localStorage, sceneKeyForWork(id), nextScene) ||
+    await pruneStaleWorkStorage(localStorage, new Set(works.map((work) => work.id)));
+    if (!await writeScene(localStorage, sceneKeyForWork(id), nextScene) ||
       !writeWorks(localStorage, nextWorks)) {
-      localStorage.removeItem(sceneKeyForWork(id));
+      await removeScene(localStorage, sceneKeyForWork(id));
       window.alert("文件已读取，但浏览器存储空间不足。请先删除不需要的作品后重试。");
       return;
     }
     setWorks(nextWorks);
-    openWork(id);
+    await openWork(id);
   }, [openWork, works]);
 
   const previewLinkAppearance = useCallback(({ icon, side, customIcon }) => {
@@ -3707,4 +3709,6 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+initializeSceneStorage(localStorage).finally(() => {
+  createRoot(document.getElementById("root")).render(<App />);
+});
