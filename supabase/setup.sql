@@ -61,6 +61,10 @@ insert into storage.buckets (id, name, public, file_size_limit)
 values ('unfold-images', 'unfold-images', false, 52428800)
 on conflict (id) do update set public = false;
 
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('unfold-public-images', 'unfold-public-images', true, 52428800)
+on conflict (id) do update set public = true;
+
 drop policy if exists "Users read their own Unfold images" on storage.objects;
 create policy "Users read their own Unfold images"
 on storage.objects for select to authenticated
@@ -73,6 +77,28 @@ with check (
   bucket_id = 'unfold-images' and
   (storage.foldername(name))[1] = (select auth.uid()::text)
 );
+
+drop policy if exists "Users upload their own public Unfold images" on storage.objects;
+create policy "Users upload their own public Unfold images"
+on storage.objects for insert to authenticated
+with check (
+  bucket_id = 'unfold-public-images' and
+  (storage.foldername(name))[1] = (select auth.uid()::text)
+);
+
+drop policy if exists "Users update their own public Unfold images" on storage.objects;
+create policy "Users update their own public Unfold images"
+on storage.objects for update to authenticated
+using (bucket_id = 'unfold-public-images' and owner_id = (select auth.uid()::text))
+with check (
+  bucket_id = 'unfold-public-images' and
+  (storage.foldername(name))[1] = (select auth.uid()::text)
+);
+
+drop policy if exists "Users delete their own public Unfold images" on storage.objects;
+create policy "Users delete their own public Unfold images"
+on storage.objects for delete to authenticated
+using (bucket_id = 'unfold-public-images' and owner_id = (select auth.uid()::text));
 
 drop policy if exists "Users update their own Unfold images" on storage.objects;
 create policy "Users update their own Unfold images"

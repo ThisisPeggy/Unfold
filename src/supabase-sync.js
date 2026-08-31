@@ -2,6 +2,7 @@ import { MAX_SHARED_SCENE_BYTES } from "./storage.js";
 
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
 const IMAGE_BUCKET = "unfold-images";
+const PUBLIC_IMAGE_BUCKET = "unfold-public-images";
 // ponytail: cache uploads for this tab; add persisted hashes if refresh-time reuploads become costly.
 const uploadedImages = new Set();
 
@@ -160,11 +161,13 @@ export async function pullPublicScene(config, id, fetcher = fetch) {
     `${config.url}/rest/v1/unfold_public_scene?id=eq.${encodeURIComponent(id)}&select=payload`,
     { headers: headers(config, null) },
   ));
-  return (await response.json())[0]?.payload ?? null;
+  const payload = (await response.json())[0]?.payload ?? null;
+  return payload ? downloadPublicSceneImages(config, payload, fetcher) : null;
 }
 
 export async function pushPublicScene(config, session, id, payload, fetcher = fetch) {
-  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > MAX_SHARED_SCENE_BYTES) {
+  const cloudPayload = await uploadPublicSceneImages(config, session, id, payload, fetcher);
+  if (new TextEncoder().encode(JSON.stringify(cloudPayload)).byteLength > MAX_SHARED_SCENE_BYTES) {
     throw new Error("画布超过 1.5 MB，暂时无法分享。");
   }
   await requirePublicSceneSuccess(await fetcher(`${config.url}/rest/v1/unfold_public_scene`, {
@@ -176,10 +179,63 @@ export async function pushPublicScene(config, session, id, payload, fetcher = fe
     body: JSON.stringify({
       id,
       user_id: session.user.id,
-      payload,
+      payload: cloudPayload,
       updated_at: new Date().toISOString(),
     }),
   }));
+}
+
+async function uploadPublicSceneImages(config, session, sceneId, payload, fetcher) {
+  const files = {};
+  for (const [fileId, file] of Object.entries(payload.files ?? {})) {
+    const storagePath = `${session.user.id}/${sceneId}/${fileId}`;
+    const uploadKey = `${PUBLIC_IMAGE_BUCKET}/${storagePath}`;
+    if (file.dataURL && !uploadedImages.has(uploadKey)) {
+      const blob = await (await fetcher(file.dataURL)).blob();
+      const response = await fetcher(
+        `${config.url}/storage/v1/object/${PUBLIC_IMAGE_BUCKET}/${storagePath}`,
+        {
+          method: "POST",
+          headers: {
+            ...headers(config, session),
+            "Content-Type": blob.type || file.mimeType || "application/octet-stream",
+            "cache-control": "31536000",
+            "x-upsert": "true",
+          },
+          body: blob,
+        },
+      );
+      if (!response.ok) throw new Error(`图片上传失败（${response.status}）`);
+      uploadedImages.add(uploadKey);
+    }
+    const { dataURL: _dataURL, ...metadata } = file;
+    files[fileId] = { ...metadata, storagePath };
+  }
+  return { ...payload, files };
+}
+
+async function downloadPublicSceneImages(config, payload, fetcher) {
+  const files = {};
+  for (const [fileId, file] of Object.entries(payload.files ?? {})) {
+    if (!file.storagePath || file.dataURL) {
+      files[fileId] = file;
+      continue;
+    }
+    const response = await fetcher(
+      `${config.url}/storage/v1/object/public/${PUBLIC_IMAGE_BUCKET}/${file.storagePath}`,
+      { headers: headers(config, null) },
+    );
+    if (!response.ok) throw new Error(`图片下载失败（${response.status}）`);
+    const blob = await response.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    files[fileId] = {
+      ...file,
+      dataURL: `data:${blob.type || file.mimeType};base64,${btoa(binary)}`,
+    };
+  }
+  return { ...payload, files };
 }
 
 async function uploadWorkspaceImages(config, session, payload, fetcher) {

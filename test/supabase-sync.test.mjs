@@ -58,20 +58,35 @@ test("accepts browser-safe Supabase settings and rejects secret keys", () => {
 });
 
 test("publishes a scene for anonymous one-time reads", async () => {
-  const scene = { elements: [{ id: "hello" }], appState: {}, files: {} };
+  const scene = {
+    elements: [{ id: "hello" }],
+    appState: {},
+    files: { image: { mimeType: "text/plain", dataURL: "data:text/plain;base64,aGk=" } },
+  };
   const calls = [];
+  let cloudPayload;
   const fetcher = async (url, options) => {
     calls.push({ url, options });
-    return calls.length === 1
-      ? new Response(null, { status: 201 })
-      : new Response(JSON.stringify([{ payload: scene }]), { status: 200 });
+    if (url.startsWith("data:")) return fetch(url);
+    if (url.includes("/storage/v1/object/public/")) {
+      return new Response("hi", { status: 200, headers: { "Content-Type": "text/plain" } });
+    }
+    if (url.includes("/storage/v1/object/")) return new Response(null, { status: 200 });
+    if (options.method === "POST") {
+      cloudPayload = JSON.parse(options.body).payload;
+      return new Response(null, { status: 201 });
+    }
+    return new Response(JSON.stringify([{ payload: cloudPayload }]), { status: 200 });
   };
   await pushPublicScene(config, session, authResponse.user.id, scene, fetcher);
-  assert.deepEqual(await pullPublicScene(config, authResponse.user.id, fetcher), scene);
-  assert.equal(calls[0].options.headers.Authorization, "Bearer access");
-  assert.equal(JSON.parse(calls[0].options.body).user_id, session.user.id);
-  assert.equal(calls[1].options.headers.Authorization, undefined);
-  assert.equal(calls[1].options.headers.apikey, config.key);
+  const restored = await pullPublicScene(config, authResponse.user.id, fetcher);
+  assert.deepEqual(restored.elements, scene.elements);
+  assert.equal(restored.files.image.dataURL, scene.files.image.dataURL);
+  assert.equal(cloudPayload.files.image.dataURL, undefined);
+  assert.match(cloudPayload.files.image.storagePath, /123456789abc\/.*\/image$/);
+  assert.match(calls.find(({ url }) => url.includes("/object/public/")).url, /unfold-public-images/);
+  const databaseWrite = calls.find(({ url, options }) => url.includes("/rest/v1/") && options.method === "POST");
+  assert.equal(databaseWrite.options.headers.Authorization, "Bearer access");
 });
 
 test("stores images in a private bucket instead of workspace JSON", async () => {
