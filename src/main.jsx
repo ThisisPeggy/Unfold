@@ -1802,17 +1802,21 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [mode, setMode] = useState("signin");
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const passwordValid = password.length >= 6;
 
-  const connect = async (event, mode = "signin") => {
+  const connect = async (event) => {
     event.preventDefault();
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const result = await onConnect({ email, password, mode });
-      if (result?.pending) setNotice("注册成功。请先查收验证邮件，然后回来登录。");
+      if (result?.pending) {
+        setMode("signin");
+        setNotice("注册成功。请先查收验证邮件，然后回来登录。");
+      }
     } catch (connectionError) {
       setError(connectionError.message || "连接失败，请检查配置。");
     } finally {
@@ -1830,10 +1834,12 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
           </svg>
         </span>
         <div>
-          <h3>{session ? "云同步已开启" : "登录后同步作品"}</h3>
+          <h3>{session ? "云同步已开启" : mode === "signup" ? "创建账号" : "登录后同步作品"}</h3>
           <p>{session
             ? "你的作品会自动保存到这个账号。"
-            : "换一台设备登录，也能继续编辑。无需同步时可直接使用画布。"}</p>
+            : mode === "signup"
+              ? "使用邮箱创建账号，在不同设备间同步作品。"
+              : "换一台设备登录，也能继续编辑。无需同步时可直接使用画布。"}</p>
         </div>
         {session && (
           <span className={`supabase-sync-dialog__badge supabase-sync-dialog__badge--${status}`}>
@@ -1883,7 +1889,7 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
             <input
               aria-describedby="supabase-auth-message"
               aria-invalid={Boolean(error)}
-              autoComplete="current-password"
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
               id="supabase-password"
               minLength="6"
               onChange={(event) => setPassword(event.target.value)}
@@ -1913,13 +1919,21 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
         </div>
         <div className="supabase-sync-dialog__auth-actions">
           <button className="unfold-dialog__primary" disabled={busy} type="submit">
-            {busy ? "正在验证…" : "登录并开始同步"}
+            {busy ? (mode === "signup" ? "正在创建…" : "正在验证…") : mode === "signup" ? "创建账号" : "登录并开始同步"}
           </button>
         </div>
         <p className="supabase-sync-dialog__switch">
-          还没有账号？
-          <button disabled={busy} onClick={(event) => connect(event, "signup")} type="button">
-            创建账号
+          {mode === "signup" ? "已有账号？" : "还没有账号？"}
+          <button
+            disabled={busy}
+            onClick={() => {
+              setMode((value) => value === "signup" ? "signin" : "signup");
+              setError("");
+              setNotice("");
+            }}
+            type="button"
+          >
+            {mode === "signup" ? "登录" : "创建账号"}
           </button>
         </p>
         <small className="supabase-sync-dialog__privacy">登录仅用于云同步，本地画布始终可以直接使用。</small>
