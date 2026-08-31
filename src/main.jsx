@@ -1740,19 +1740,15 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
           </svg>
         </span>
         <div>
-          <h3>{session ? "云同步已开启" : mode === "signup" ? "创建账号" : "登录后同步作品"}</h3>
+          <h3>{session
+            ? status === "syncing" ? "正在同步" : status === "error" ? "连接异常" : "已连接"
+            : mode === "signup" ? "创建账号" : "登录后同步作品"}</h3>
           <p>{session
-            ? "你的作品会自动保存到这个账号。"
+            ? session.user.email
             : mode === "signup"
               ? "使用邮箱创建账号，在不同设备间同步作品。"
               : "换一台设备登录，也能继续编辑。无需同步时可直接使用画布。"}</p>
         </div>
-        {session && (
-          <span className={`supabase-sync-dialog__badge supabase-sync-dialog__badge--${status}`}>
-            <i aria-hidden="true" />
-            {status === "syncing" ? "同步中" : status === "error" ? "连接异常" : "已连接"}
-          </span>
-        )}
       </div>
 
       {!session && !available && (
@@ -1846,13 +1842,9 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
       </form>}
 
       {session && (
-        <div className="supabase-sync-dialog__account">
-          <div>
-            <span>当前账号</span>
-            <strong>{session.user.email}</strong>
-          </div>
-          <button onClick={onDisconnect} type="button">退出并断开同步</button>
-        </div>
+        <button className="supabase-sync-dialog__disconnect" onClick={onDisconnect} type="button">
+          退出并断开同步
+        </button>
       )}
     </UnfoldDialog>
   );
@@ -1903,11 +1895,8 @@ function WorksLibrary({ activeWorkId, cloudSync, onBack, onDelete, onOpen, onRen
     <section className="works-library" aria-labelledby="works-library-title">
       <header className="works-library__header">
         <div className="works-library__heading">
-          <img className="works-library__logo" src="/unfold-logo.png" alt="" />
-          <div>
-            <span className="works-library__brand">UNFOLD</span>
-            <h1 id="works-library-title">我的作品</h1>
-          </div>
+          <span className="works-library__brand">UNFOLD</span>
+          <h1 id="works-library-title">我的作品</h1>
         </div>
         <div className="works-library__actions">
           <button className="works-library__close" aria-label="返回画布" onClick={onBack} type="button">

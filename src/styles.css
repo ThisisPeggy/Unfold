@@ -3367,8 +3367,8 @@ body,
 
 .supabase-sync-dialog__hero {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
   padding: 18px 20px 14px;
 }
@@ -3381,6 +3381,7 @@ body,
   border-radius: 8px;
   color: var(--tale-muted);
   background: var(--tale-surface-subtle);
+  margin-top: 1px;
 }
 
 .supabase-sync-dialog__icon svg {
@@ -3404,31 +3405,6 @@ body,
   font-size: 13px;
   line-height: 1.5;
   text-wrap: pretty;
-}
-
-.supabase-sync-dialog__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 7px;
-  border-radius: 4px;
-  color: #448361;
-  background: #edf3ec;
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.supabase-sync-dialog__badge i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.supabase-sync-dialog__badge--error {
-  color: var(--tale-danger);
-  background: #fbe4e4;
 }
 
 .supabase-sync-dialog__setup {
@@ -3726,57 +3702,23 @@ body,
   margin-top: 4px;
 }
 
-.supabase-sync-dialog__project,
-.supabase-sync-dialog__account {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 20px 20px;
-  padding: 12px;
-  border: 1px solid rgb(55 53 47 / 12%);
-  border-radius: 8px;
-}
-
-.supabase-sync-dialog__project {
-  margin: 0 0 6px;
-  background: #f7f7f5;
-}
-
-.supabase-sync-dialog__project span,
-.supabase-sync-dialog__project strong,
-.supabase-sync-dialog__account span,
-.supabase-sync-dialog__account strong {
-  display: block;
-}
-
-.supabase-sync-dialog__project span,
-.supabase-sync-dialog__account span {
-  margin-bottom: 3px;
-  color: var(--tale-muted);
-  font-size: 11px;
-}
-
-.supabase-sync-dialog__project strong,
-.supabase-sync-dialog__account strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.supabase-sync-dialog__project button,
-.supabase-sync-dialog__account button {
+.supabase-sync-dialog__disconnect {
+  width: calc(100% - 40px);
   min-height: 40px;
-  padding: 0 12px;
+  margin: 0 20px 20px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--tale-ink);
   background: var(--tale-surface-hover);
   font: 500 12px/1 var(--tale-font);
   cursor: pointer;
 }
 
-.supabase-sync-dialog__project button:active,
-.supabase-sync-dialog__account button:active {
+.supabase-sync-dialog__disconnect:hover {
+  color: var(--tale-danger);
+}
+
+.supabase-sync-dialog__disconnect:active {
   transform: scale(0.96);
 }
 
@@ -3816,15 +3758,8 @@ body,
 }
 
 .works-library__heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.works-library__logo {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
+  display: grid;
+  gap: 5px;
 }
 
 .works-library__brand {
@@ -3835,7 +3770,7 @@ body,
 }
 
 .works-library h1 {
-  margin: 5px 0 0;
+  margin: 0;
   font-size: clamp(28px, 4vw, 40px);
   font-weight: 600;
   letter-spacing: -0.035em;
