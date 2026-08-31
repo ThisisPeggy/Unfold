@@ -191,6 +191,34 @@ body,
   stroke-width: 1.5;
 }
 
+.control-button--handwriting,
+.handwriting-hint {
+  display: none;
+}
+
+@media (any-pointer: coarse) {
+  .control-button--handwriting {
+    display: inline-flex;
+  }
+
+  .handwriting-hint {
+    position: fixed;
+    z-index: 9;
+    top: 16px;
+    left: 50%;
+    display: block;
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: 999px;
+    color: var(--tale-ink);
+    background: rgb(255 255 255 / 88%);
+    box-shadow: var(--tale-shadow);
+    font-size: 12px;
+    transform: translateX(-50%);
+    backdrop-filter: blur(16px);
+  }
+}
+
 .hermes-status-dot {
   width: 7px;
   height: 7px;

@@ -2044,6 +2044,7 @@ function App() {
   );
   const [works, setWorks] = useState(workspace.works);
   const [preview, setPreview] = useState(isShared);
+  const [handwritingMode, setHandwritingMode] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [publishState, setPublishState] = useState("idle");
   const [shareError, setShareError] = useState(false);
@@ -2685,6 +2686,7 @@ function App() {
   }, [excalidrawAPI]);
 
   const save = useCallback((elements, appState, files) => {
+    setHandwritingMode(appState.activeTool?.type === "text");
     if (missingArrowhead(appState)) {
       excalidrawAPI?.updateScene({ appState: { currentItemEndArrowhead: "arrow" } });
     }
@@ -3327,6 +3329,29 @@ function App() {
       )}
       {!preview && (
         <button
+          className="control-button control-button--handwriting"
+          type="button"
+          title="手写文字"
+          aria-label="手写文字：轻点画布后用 Apple Pencil 书写"
+          aria-pressed={handwritingMode}
+          onClick={() => {
+            setLinkEditorId(null);
+            setPathEditorOpen(false);
+            setAssistantOpen(false);
+            setHighlighterActive(false);
+            setHandwritingMode(true);
+            excalidrawAPI?.setActiveTool({ type: "text", locked: true });
+          }}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m4 18 3.5-.8L18.8 5.9a1.6 1.6 0 0 0-2.3-2.3L5.2 14.9Z" />
+            <path d="m13 18 2.5-7 2.5 7m-4.2-2h3.4" />
+          </svg>
+          <span className="control-button__label control-button__label--keep">手写文字</span>
+        </button>
+      )}
+      {!preview && (
+        <button
           ref={assistantButtonRef}
           className="control-button control-button--hermes"
           type="button"
@@ -3387,6 +3412,9 @@ function App() {
       className={`canvas-app${isShared ? " canvas-app--shared" : ""}${highlighterActive ? " canvas-app--highlighting" : ""}`}
       onKeyDownCapture={handleCanvasShortcut}
     >
+      {!preview && handwritingMode && (
+        <p className="handwriting-hint" role="status">轻点画布后，用 Apple Pencil 书写</p>
+      )}
       <input
         ref={fileInputRef}
         type="file"
