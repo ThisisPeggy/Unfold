@@ -75,6 +75,7 @@ test("published scene ids are strict and parse from share paths", () => {
   assert.equal(sceneIdFromPath(`/s/${id}`), id);
   assert.equal(sceneIdFromPath(`/s/${id}/`), id);
   assert.equal(isSceneId("0123456789abcdef0123456789abcdef"), true);
+  assert.equal(isSceneId("12345678-1234-4123-8123-123456789abc"), true);
   assert.equal(isSceneId("too-short"), false);
   assert.equal(sceneIdFromPath("/s/not-an-id"), null);
   assert.equal(isEncodedScene("H4sIA_test-123"), true);
@@ -92,6 +93,10 @@ test("publication credentials survive local storage and reject malformed data", 
   assert.equal(isSceneEditKey(publication.editKey), true);
   assert.equal(writePublication(storage, "publication", publication), true);
   assert.deepEqual(readPublication(storage, "publication"), publication);
+  values.set("publication", '{"id":"12345678-1234-4123-8123-123456789abc"}');
+  assert.deepEqual(readPublication(storage, "publication"), {
+    id: "12345678-1234-4123-8123-123456789abc",
+  });
   values.set("publication", '{"id":"not-an-id","editKey":"bad"}');
   assert.equal(readPublication(storage, "publication"), null);
 });

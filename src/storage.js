@@ -28,9 +28,11 @@ export function writeScene(storage, key, scene) {
 export function readPublication(storage, key) {
   try {
     const publication = JSON.parse(storage.getItem(key));
-    return isSceneId(publication?.id) && isSceneEditKey(publication?.editKey)
-      ? publication
-      : null;
+    if (!isSceneId(publication?.id)) return null;
+    return {
+      id: publication.id,
+      ...(isSceneEditKey(publication.editKey) ? { editKey: publication.editKey } : {}),
+    };
   } catch {
     return null;
   }
@@ -200,7 +202,7 @@ export function isEncodedScene(value) {
 }
 
 export function isSceneId(value) {
-  return typeof value === "string" && /^(?:[\w-]{12}|[a-f0-9]{32})$/.test(value);
+  return typeof value === "string" && /^(?:[\w-]{12}|[a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/.test(value);
 }
 
 export function isSceneEditKey(value) {

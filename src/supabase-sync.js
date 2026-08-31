@@ -1,3 +1,5 @@
+import { MAX_SHARED_SCENE_BYTES } from "./storage.js";
+
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
 const IMAGE_BUCKET = "unfold-images";
 // ponytail: cache uploads for this tab; add persisted hashes if refresh-time reuploads become costly.
@@ -28,6 +30,39 @@ create policy "Users update their own Unfold workspace"
 on public.unfold_user_workspace for update to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
+
+create table if not exists public.unfold_public_scene (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.unfold_public_scene enable row level security;
+revoke all on table public.unfold_public_scene from anon, authenticated;
+grant select on table public.unfold_public_scene to anon;
+grant select, insert, update, delete on table public.unfold_public_scene to authenticated;
+
+drop policy if exists "Anyone reads shared Unfold scenes" on public.unfold_public_scene;
+create policy "Anyone reads shared Unfold scenes"
+on public.unfold_public_scene for select to anon, authenticated
+using (true);
+
+drop policy if exists "Users create their own shared Unfold scenes" on public.unfold_public_scene;
+create policy "Users create their own shared Unfold scenes"
+on public.unfold_public_scene for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users update their own shared Unfold scenes" on public.unfold_public_scene;
+create policy "Users update their own shared Unfold scenes"
+on public.unfold_public_scene for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users delete their own shared Unfold scenes" on public.unfold_public_scene;
+create policy "Users delete their own shared Unfold scenes"
+on public.unfold_public_scene for delete to authenticated
+using ((select auth.uid()) = user_id);
 
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('unfold-images', 'unfold-images', false, 52428800)
@@ -193,6 +228,41 @@ export async function pushSupabaseWorkspace(config, session, payload, fetcher = 
       user_id: session.user.id,
       payload: cloudPayload,
       updated_at: new Date(payload.updatedAt).toISOString(),
+    }),
+  }));
+}
+
+async function requirePublicSceneSuccess(response) {
+  if (response.ok) return response;
+  if (response.status === 404) {
+    throw new Error("找不到 unfold_public_scene 表，请先复制并运行最新建表 SQL。");
+  }
+  throw await responseError(response, `Supabase 分享失败（${response.status}）`);
+}
+
+export async function pullPublicScene(config, id, fetcher = fetch) {
+  const response = await requirePublicSceneSuccess(await fetcher(
+    `${config.url}/rest/v1/unfold_public_scene?id=eq.${encodeURIComponent(id)}&select=payload`,
+    { headers: headers(config, null) },
+  ));
+  return (await response.json())[0]?.payload ?? null;
+}
+
+export async function pushPublicScene(config, session, id, payload, fetcher = fetch) {
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > MAX_SHARED_SCENE_BYTES) {
+    throw new Error("画布超过 1.5 MB，暂时无法分享。");
+  }
+  await requirePublicSceneSuccess(await fetcher(`${config.url}/rest/v1/unfold_public_scene`, {
+    method: "POST",
+    headers: {
+      ...headers(config, session, true),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify({
+      id,
+      user_id: session.user.id,
+      payload,
+      updated_at: new Date().toISOString(),
     }),
   }));
 }

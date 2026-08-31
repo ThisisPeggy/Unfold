@@ -25,10 +25,7 @@ import {
   ACTIVE_WORK_STORAGE_KEY,
   createWorkspaceSnapshot,
   decodeScene,
-  encodeScene,
   initializeWorkStorage,
-  isSceneEditKey,
-  isSceneId,
   parseUnfoldScene,
   parseWorkspaceSnapshot,
   pruneStaleWorkStorage,
@@ -44,7 +41,9 @@ import {
   writeWorks,
 } from "./storage.js";
 import {
+  pullPublicScene,
   pullSupabaseWorkspace,
+  pushPublicScene,
   pushSupabaseWorkspace,
   readSupabaseSession,
   refreshSupabaseSession,
@@ -1991,7 +1990,7 @@ function WorkThumbnail({ scene }) {
   );
 }
 
-function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onOpen, onRename, works }) {
+function WorksLibrary({ activeWorkId, cloudSync, onBack, onCreate, onDelete, onOpen, onRename, works }) {
   return (
     <section className="works-library" aria-labelledby="works-library-title">
       <header className="works-library__header">
@@ -2025,7 +2024,7 @@ function WorksLibrary({ activeWorkId, onBack, onCreate, onDelete, onOpen, onRena
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
-                {work.published ? " · 已发布" : " · 本地"}
+                {cloudSync ? " · 云同步" : " · 仅本地"}
                 {work.id === activeWorkId ? " · 当前" : ""}
                 </span>
               </button>
@@ -2135,10 +2134,7 @@ function App() {
   const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [supabaseOpen, setSupabaseOpen] = useState(false);
-  const supabaseConfig = useMemo(
-    () => isShared ? null : supabaseConfigFromEnv(import.meta.env),
-    [isShared],
-  );
+  const supabaseConfig = useMemo(() => supabaseConfigFromEnv(import.meta.env), []);
   const [supabaseSession, setSupabaseSession] = useState(
     () => isShared ? null : readSupabaseSession(localStorage),
   );
@@ -2638,11 +2634,8 @@ function App() {
   useEffect(() => {
     if (!isShared) return;
     let active = true;
-    let loaded = false;
-    let etag = "";
     const applyScene = (decodedScene) => {
       if (!active) return;
-      loaded = true;
       setShareError(false);
       const nextScene = withoutNativeLinks(decodedScene);
       latestScene.current = nextScene;
@@ -2658,31 +2651,18 @@ function App() {
         active = false;
       };
     }
-    let poll;
-    const loadScene = async () => {
-      try {
-        const response = await fetch(`/api/scenes?id=${sharedSceneId}`, {
-          cache: "no-store",
-          headers: etag ? { "If-None-Match": etag } : {},
-        });
-        if (response.status === 304) return;
-        if (!response.ok) throw new Error("Shared scene not found");
-        etag = response.headers.get("etag") || "";
-        applyScene(await decodeScene(await response.text()));
-      } catch {
-        if (!active || loaded) return;
-        setShareError(true);
-        setScene(starterScene());
-      } finally {
-        if (active) poll = window.setTimeout(loadScene, 5000);
-      }
-    };
-    loadScene();
+    pullPublicScene(supabaseConfig, sharedSceneId).then((sharedScene) => {
+      if (!sharedScene) throw new Error("Shared scene not found");
+      applyScene(sharedScene);
+    }).catch(() => {
+      if (!active) return;
+      setShareError(true);
+      setScene(starterScene());
+    });
     return () => {
       active = false;
-      window.clearTimeout(poll);
     };
-  }, [isShared, sharedPayload, sharedSceneId]);
+  }, [isShared, sharedPayload, sharedSceneId, supabaseConfig]);
 
   useEffect(() => {
     if (preview || !excalidrawAPI) {
@@ -2836,6 +2816,8 @@ function App() {
 
   const publish = useCallback(async () => {
     if (publishState === "working") return null;
+    const auth = supabaseSessionRef.current;
+    if (!supabaseConfig || !auth) return null;
     setPublishState("working");
     try {
       const publishedScene = excalidrawAPI
@@ -2846,21 +2828,8 @@ function App() {
           }
         : latestScene.current;
       let current = publication.current;
-      const response = await fetch(current ? `/api/scenes?id=${current.id}` : "/api/scenes", {
-        method: current ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          ...(current ? { Authorization: `Bearer ${current.editKey}` } : {}),
-        },
-        body: await encodeScene(publishedScene),
-      });
-      if (current) {
-        if (!response.ok) throw new Error("Publishing failed");
-      } else {
-        current = response.ok ? await response.json() : null;
-        if (!isSceneId(current?.id) || !isSceneEditKey(current?.editKey)) {
-          throw new Error("Publishing failed");
-        }
+      if (!current) {
+        current = { id: crypto.randomUUID() };
         publication.current = current;
         if (!writePublication(
           localStorage,
@@ -2870,6 +2839,7 @@ function App() {
           throw new Error("Publishing credentials could not be saved");
         }
       }
+      await pushPublicScene(supabaseConfig, auth, current.id, publishedScene);
       const url = new URL(`/s/${current.id}`, location.origin);
       try {
         await navigator.clipboard.writeText(url.href);
@@ -2886,9 +2856,14 @@ function App() {
       window.clearTimeout(publishTimer.current);
       publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
     }
-  }, [excalidrawAPI, publishState]);
+  }, [excalidrawAPI, publishState, supabaseConfig]);
 
   const addToNotion = useCallback(() => {
+    if (!supabaseSessionRef.current) {
+      setNotionNotice("请先登录云同步，再添加到 Notion。");
+      setSupabaseOpen(true);
+      return;
+    }
     const notion = window.open("", "_blank");
     if (notion) {
       notion.document.title = "添加到 Notion";
@@ -3721,9 +3696,9 @@ function App() {
           onDelete={deleteWork}
           onOpen={openWork}
           onRename={renameWork}
+          cloudSync={Boolean(supabaseSession)}
           works={works.map((work) => ({
             ...work,
-            published: Boolean(readPublication(localStorage, publicationKeyForWork(work.id))),
             scene: readScene(localStorage, sceneKeyForWork(work.id)),
           }))}
         />

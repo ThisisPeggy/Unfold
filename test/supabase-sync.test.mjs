@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   normalizeSupabaseConfig,
+  pullPublicScene,
   pullSupabaseWorkspace,
+  pushPublicScene,
   pushSupabaseWorkspace,
   refreshSupabaseSession,
   signInSupabase,
@@ -41,11 +43,30 @@ test("accepts browser-safe Supabase settings and rejects secret keys", () => {
   assert.match(SUPABASE_SETUP_SQL, /auth\.uid\(\)/);
   assert.match(SUPABASE_SETUP_SQL, /to authenticated/);
   assert.match(SUPABASE_SETUP_SQL, /storage\.buckets/);
+  assert.match(SUPABASE_SETUP_SQL, /unfold_public_scene/);
+  assert.match(SUPABASE_SETUP_SQL, /to anon/);
   assert.deepEqual(supabaseConfigFromEnv({
     VITE_SUPABASE_URL: config.url,
     VITE_SUPABASE_PUBLISHABLE_KEY: config.key,
   }), config);
   assert.equal(supabaseConfigFromEnv({}), null);
+});
+
+test("publishes a scene for anonymous one-time reads", async () => {
+  const scene = { elements: [{ id: "hello" }], appState: {}, files: {} };
+  const calls = [];
+  const fetcher = async (url, options) => {
+    calls.push({ url, options });
+    return calls.length === 1
+      ? new Response(null, { status: 201 })
+      : new Response(JSON.stringify([{ payload: scene }]), { status: 200 });
+  };
+  await pushPublicScene(config, session, authResponse.user.id, scene, fetcher);
+  assert.deepEqual(await pullPublicScene(config, authResponse.user.id, fetcher), scene);
+  assert.equal(calls[0].options.headers.Authorization, "Bearer access");
+  assert.equal(JSON.parse(calls[0].options.body).user_id, session.user.id);
+  assert.equal(calls[1].options.headers.Authorization, undefined);
+  assert.equal(calls[1].options.headers.apikey, config.key);
 });
 
 test("stores images in a private bucket instead of workspace JSON", async () => {
