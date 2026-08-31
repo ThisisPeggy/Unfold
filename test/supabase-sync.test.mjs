@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   normalizeSupabaseConfig,
@@ -10,8 +11,12 @@ import {
   signInSupabase,
   signUpSupabase,
   supabaseConfigFromEnv,
-  SUPABASE_SETUP_SQL,
 } from "../src/supabase-sync.js";
+
+const SUPABASE_SETUP_SQL = await readFile(
+  new URL("../supabase/setup.sql", import.meta.url),
+  "utf8",
+);
 
 const config = {
   url: "https://example.supabase.co",

@@ -1,3 +1,3 @@
-import { SUPABASE_SETUP_SQL } from "../src/supabase-sync.js";
+import { readFile } from "node:fs/promises";
 
-console.log(SUPABASE_SETUP_SQL);
+console.log(await readFile(new URL("../supabase/setup.sql", import.meta.url), "utf8"));
