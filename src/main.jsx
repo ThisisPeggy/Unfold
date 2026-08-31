@@ -1873,6 +1873,7 @@ function WorkThumbnail({ scene }) {
       appState: { ...scene.appState, exportBackground: true },
       files: scene.files ?? {},
       exportPadding: 24,
+      renderEmbeddables: true,
     }).then((svg) => {
       if (!disposed) setArtwork(readStoryArtwork(svg));
     }).catch(() => {
@@ -1901,9 +1902,12 @@ function WorksLibrary({ activeWorkId, cloudSync, onBack, onDelete, onOpen, onRen
   return (
     <section className="works-library" aria-labelledby="works-library-title">
       <header className="works-library__header">
-        <div>
-          <span className="works-library__brand">UNFOLD</span>
-          <h1 id="works-library-title">我的作品</h1>
+        <div className="works-library__heading">
+          <img className="works-library__logo" src="/unfold-logo.png" alt="" />
+          <div>
+            <span className="works-library__brand">UNFOLD</span>
+            <h1 id="works-library-title">我的作品</h1>
+          </div>
         </div>
         <div className="works-library__actions">
           <button className="works-library__close" aria-label="返回画布" onClick={onBack} type="button">
@@ -2685,6 +2689,16 @@ function App() {
   }, [excalidrawAPI]);
 
   const save = useCallback((elements, appState, files) => {
+    if (
+      appState.showHyperlinkPopup === "info" &&
+      elements.some((element) =>
+        appState.selectedElementIds[element.id] && ["embeddable", "iframe"].includes(element.type),
+      )
+    ) {
+      requestAnimationFrame(() => excalidrawAPI?.updateScene({
+        appState: { showHyperlinkPopup: false },
+      }));
+    }
     if (missingArrowhead(appState)) {
       excalidrawAPI?.updateScene({ appState: { currentItemEndArrowhead: "arrow" } });
     }

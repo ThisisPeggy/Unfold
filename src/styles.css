@@ -3815,6 +3815,18 @@ body,
   margin-bottom: 32px;
 }
 
+.works-library__heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.works-library__logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+
 .works-library__brand {
   color: var(--unfold-brand-coral);
   font-size: 11px;

@@ -405,6 +405,14 @@ const patches = [
     'return Xt.set(e,{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:n}}),{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:n}}',
     'return Xt.set(e,{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:globalThis.location.origin!==new URL(e,globalThis.location.href).origin}}),{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:globalThis.location.origin!==new URL(e,globalThis.location.href).origin}}',
   ],
+  [
+    'context.lineWidth = (activeEmbeddable ? 4 : 1) / appState.zoom.value;',
+    'context.lineWidth = 1 / appState.zoom.value; // Unfold: keep active embeds subtle.',
+  ],
+  [
+    'lineWidth=(p?4:1)/o.zoom.value',
+    'lineWidth=1/o.zoom.value/* unfold-embed-selection */',
+  ],
 ];
 
 const iconPatches = [
@@ -526,6 +534,11 @@ const selectionMenuVerified = files.filter((file) => {
 const externalEmbedsVerified = files.filter((file) =>
   fs.readFileSync(file, "utf8").includes("globalThis.location.href"),
 ).length;
+const subtleEmbedSelectionVerified = files.filter((file) => {
+  const source = fs.readFileSync(file, "utf8");
+  return source.includes("Unfold: keep active embeds subtle") ||
+    source.includes("unfold-embed-selection");
+}).length;
 
 // Verification - require at least 1 instance of each critical patch
 const minRequired = {
@@ -543,6 +556,7 @@ const minRequired = {
   libraryActionRemoved: 2,
   selectionMenu: 2,
   externalEmbeds: 2,
+  subtleEmbedSelection: 2,
 };
 
 const verificationResults = {
@@ -560,6 +574,7 @@ const verificationResults = {
   libraryActionRemoved: libraryActionRemovedVerified,
   selectionMenu: selectionMenuVerified,
   externalEmbeds: externalEmbedsVerified,
+  subtleEmbedSelection: subtleEmbedSelectionVerified,
 };
 
 const failures = Object.entries(minRequired).filter(
