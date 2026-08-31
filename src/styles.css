@@ -120,10 +120,6 @@ body,
   box-shadow: 0 0 0 3px rgb(68 131 97 / 12%);
 }
 
-.save-state--saving .save-state__dot {
-  background: #cb912f;
-}
-
 .save-state--error {
   color: var(--tale-danger);
 }
@@ -3109,16 +3105,6 @@ body,
 }
 
 @media (max-width: 640px) {
-  .save-state {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
   .canvas-controls {
     top: 12px;
     right: 12px;

@@ -2014,7 +2014,7 @@ function App() {
   );
   const [works, setWorks] = useState(workspace.works);
   const [preview, setPreview] = useState(isShared);
-  const [saveState, setSaveState] = useState("saved");
+  const [saveError, setSaveError] = useState(false);
   const [publishState, setPublishState] = useState("idle");
   const [shareError, setShareError] = useState(false);
   const [notionNotice, setNotionNotice] = useState("");
@@ -2108,10 +2108,9 @@ function App() {
     window.clearTimeout(saveTimer.current);
     const revision = ++saveRevision.current;
     const workId = activeWorkId.current;
-    setSaveState("saving");
     saveTimer.current = window.setTimeout(() => {
       if (!writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
-        if (revision === saveRevision.current) setSaveState("error");
+        if (revision === saveRevision.current) setSaveError(true);
         return;
       }
       setWorks((currentWorks) => {
@@ -2121,7 +2120,7 @@ function App() {
         writeWorks(localStorage, nextWorks);
         return nextWorks;
       });
-      if (revision === saveRevision.current) setSaveState("saved");
+      if (revision === saveRevision.current) setSaveError(false);
     }, 400);
   }, []);
 
@@ -2152,7 +2151,7 @@ function App() {
     setAssistantOpen(false);
     setHighlighterActive(false);
     setPreview(false);
-    setSaveState("saved");
+    setSaveError(false);
     excalidrawAPI?.resetScene();
     excalidrawAPI?.addFiles(Object.values(nextScene.files ?? {}));
     excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
@@ -3203,16 +3202,10 @@ function App() {
       role="group"
       aria-label={preview ? "讲解操作" : "画板操作"}
     >
-      {!preview && (
-        <span className={`save-state save-state--${saveState}`} role="status">
+      {!preview && saveError && (
+        <span className="save-state save-state--error" role="alert">
           <span className="save-state__dot" aria-hidden="true" />
-          <span className="save-state__label">
-            {saveState === "saving"
-              ? "保存中"
-              : saveState === "error"
-                ? "保存失败"
-                : "已保存"}
-          </span>
+          <span className="save-state__label">保存失败</span>
         </span>
       )}
       {!preview && (
