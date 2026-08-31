@@ -35,6 +35,11 @@ test("scene storage survives invalid and valid local data", () => {
   const scene = { elements: [{ id: "hello" }], appState: {}, files: {} };
   assert.equal(writeScene(storage, "scene", scene), true);
   assert.deepEqual(readScene(storage, "scene"), scene);
+
+  const largeScene = { ...scene, elements: [{ id: "large", text: "想法".repeat(30_000) }] };
+  assert.equal(writeScene(storage, "large", largeScene), true);
+  assert.match(values.get("large"), /^gzip:/);
+  assert.deepEqual(readScene(storage, "large"), largeScene);
 });
 
 test("UNFOLD files preserve the complete scene and reject other JSON", () => {
@@ -76,8 +81,10 @@ test("published scene ids are strict and parse from share paths", () => {
   assert.equal(sceneIdFromPath(`/s/${id}/`), id);
   assert.equal(isSceneId("0123456789abcdef0123456789abcdef"), true);
   assert.equal(isSceneId("12345678-1234-4123-8123-123456789abc"), true);
-  assert.equal(isSceneId("too-short"), false);
-  assert.equal(sceneIdFromPath("/s/not-an-id"), null);
+  assert.equal(isSceneId("my-idea"), true);
+  assert.equal(isSceneId("My Idea"), false);
+  assert.equal(isSceneId("ab"), false);
+  assert.equal(sceneIdFromPath("/s/-not-an-id"), null);
   assert.equal(isEncodedScene("H4sIA_test-123"), true);
   assert.equal(isEncodedScene("not valid!"), false);
 });
@@ -97,7 +104,7 @@ test("publication credentials survive local storage and reject malformed data", 
   assert.deepEqual(readPublication(storage, "publication"), {
     id: "12345678-1234-4123-8123-123456789abc",
   });
-  values.set("publication", '{"id":"not-an-id","editKey":"bad"}');
+  values.set("publication", '{"id":"-not-an-id","editKey":"bad"}');
   assert.equal(readPublication(storage, "publication"), null);
 });
 

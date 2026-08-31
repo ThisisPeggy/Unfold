@@ -1,6 +1,7 @@
 import { MAX_SHARED_SCENE_BYTES } from "./storage.js";
 
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
+export const SUPABASE_WORK_LIMIT = 10;
 const IMAGE_BUCKET = "unfold-images";
 const PUBLIC_IMAGE_BUCKET = "unfold-public-images";
 // ponytail: cache uploads for this tab; add persisted hashes if refresh-time reuploads become costly.
@@ -133,6 +134,9 @@ export async function pullSupabaseWorkspace(config, session, fetcher = fetch) {
 }
 
 export async function pushSupabaseWorkspace(config, session, payload, fetcher = fetch) {
+  if ((payload.works?.length ?? Object.keys(payload.scenes ?? {}).length) > SUPABASE_WORK_LIMIT) {
+    throw new Error(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除不需要的作品。`);
+  }
   const cloudPayload = await uploadWorkspaceImages(config, session, payload, fetcher);
   await requireSuccess(await fetcher(`${config.url}/rest/v1/unfold_user_workspace`, {
     method: "POST",

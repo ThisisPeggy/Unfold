@@ -10,6 +10,7 @@ import {
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
+  SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
 } from "../src/supabase-sync.js";
 
@@ -155,4 +156,22 @@ test("pulls and upserts the signed-in user's workspace", async () => {
   assert.equal(calls[0].options.headers.Authorization, "Bearer access");
   assert.equal(calls[1].options.method, "POST");
   assert.equal(JSON.parse(calls[1].options.body).user_id, session.user.id);
+});
+
+test("rejects workspaces above the cloud work limit before uploading", async () => {
+  const payload = {
+    version: 1,
+    updatedAt: 123,
+    works: Array.from({ length: SUPABASE_WORK_LIMIT + 1 }, (_, index) => ({ id: `${index}` })),
+    scenes: {},
+  };
+  let requested = false;
+  await assert.rejects(
+    pushSupabaseWorkspace(config, session, payload, async () => {
+      requested = true;
+      return new Response(null, { status: 201 });
+    }),
+    /最多保存 10 个作品/,
+  );
+  assert.equal(requested, false);
 });

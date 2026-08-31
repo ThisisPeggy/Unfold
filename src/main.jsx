@@ -50,6 +50,7 @@ import {
   signInSupabase,
   signUpSupabase,
   SUPABASE_SESSION_STORAGE_KEY,
+  SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
   writeSupabaseSession,
 } from "./supabase-sync.js";
@@ -1894,7 +1895,7 @@ function WorkThumbnail({ scene }) {
   );
 }
 
-function WorksLibrary({ activeWorkId, cloudSync, onBack, onCreate, onDelete, onOpen, onRename, works }) {
+function WorksLibrary({ activeWorkId, cloudSync, onBack, onDelete, onOpen, onRename, onShare, works }) {
   return (
     <section className="works-library" aria-labelledby="works-library-title">
       <header className="works-library__header">
@@ -1903,8 +1904,11 @@ function WorksLibrary({ activeWorkId, cloudSync, onBack, onCreate, onDelete, onO
           <h1 id="works-library-title">我的作品</h1>
         </div>
         <div className="works-library__actions">
-          <button className="works-library__create" onClick={onCreate} type="button">新建作品</button>
-          <button onClick={onBack} type="button">返回画布</button>
+          <button className="works-library__close" aria-label="返回画布" onClick={onBack} type="button">
+            <svg aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="m7 7 10 10M17 7 7 17" />
+            </svg>
+          </button>
         </div>
       </header>
       <div className="works-library__grid">
@@ -1933,6 +1937,7 @@ function WorksLibrary({ activeWorkId, cloudSync, onBack, onCreate, onDelete, onO
                 </span>
               </button>
               <div className="work-card__tools">
+                <button aria-label={`分享 ${work.name}`} onClick={() => onShare(work.id)} type="button">分享</button>
                 <button aria-label={`重命名 ${work.name}`} onClick={() => onRename(work.id)} type="button">重命名</button>
                 <button aria-label={`删除 ${work.name}`} onClick={() => onDelete(work.id)} type="button">删除</button>
               </div>
@@ -1941,6 +1946,30 @@ function WorksLibrary({ activeWorkId, cloudSync, onBack, onCreate, onDelete, onO
         ))}
       </div>
     </section>
+  );
+}
+
+function ShareWorkDialog({ onClose, onShare, work }) {
+  const [slug, setSlug] = useState("");
+  const valid = /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])?$/.test(slug);
+  return (
+    <UnfoldDialog className="share-work-dialog" onClose={onClose} title={`分享“${work.name}”`}>
+      <p>设置一个容易记住的只读链接。</p>
+      <label>
+        <span>{location.origin}/s/</span>
+        <input
+          autoFocus
+          maxLength="48"
+          onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+          placeholder="my-idea"
+          value={slug}
+        />
+      </label>
+      <div className="unfold-dialog__actions">
+        <button onClick={onClose} type="button">取消</button>
+        <button className="unfold-dialog__primary" disabled={!valid} onClick={() => onShare(slug)} type="button">复制链接</button>
+      </div>
+    </UnfoldDialog>
   );
 }
 
@@ -2017,6 +2046,7 @@ function App() {
   const [publishState, setPublishState] = useState("idle");
   const [shareError, setShareError] = useState(false);
   const [notionNotice, setNotionNotice] = useState("");
+  const [shareWorkId, setShareWorkId] = useState(null);
   const [scene, setScene] = useState(isShared ? null : localScene);
   const [editorView, setEditorView] = useState({
     elements: localScene.elements,
@@ -2136,10 +2166,12 @@ function App() {
     setHighlighterActive(false);
     setPreview(false);
     setSaveError(false);
-    excalidrawAPI?.resetScene();
-    excalidrawAPI?.addFiles(Object.values(nextScene.files ?? {}));
-    excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
-  }, [excalidrawAPI]);
+    if (!preview) {
+      excalidrawAPI?.resetScene();
+      excalidrawAPI?.addFiles(Object.values(nextScene.files ?? {}));
+      excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
+    }
+  }, [excalidrawAPI, preview]);
 
   const applyCloudWorkspace = useCallback((value) => {
     const snapshot = parseWorkspaceSnapshot(value);
@@ -2300,6 +2332,10 @@ function App() {
       excalidrawAPI?.resetScene();
       excalidrawAPI?.updateScene({ elements: [], appState });
       persistScene(nextScene);
+      return;
+    }
+    if (works.length >= SUPABASE_WORK_LIMIT) {
+      window.alert(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除一个作品再新建。`);
       return;
     }
     if (!writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current)) {
@@ -2715,32 +2751,38 @@ function App() {
     });
   }, [excalidrawAPI]);
 
-  const publish = useCallback(async () => {
+  const publish = useCallback(async (workId = activeWorkId.current, customSlug) => {
     if (publishState === "working") return null;
     const auth = supabaseSessionRef.current;
     if (!supabaseConfig || !auth) return null;
     setPublishState("working");
     try {
-      const publishedScene = excalidrawAPI
+      const publishedScene = workId === activeWorkId.current && excalidrawAPI
         ? {
             ...latestScene.current,
             elements: stashStoryLinks(excalidrawAPI.getSceneElementsIncludingDeleted()),
             files: excalidrawAPI.getFiles(),
           }
-        : latestScene.current;
-      let current = publication.current;
+        : readScene(localStorage, sceneKeyForWork(workId));
+      if (!publishedScene) throw new Error("作品不存在");
+      const publicationKey = publicationKeyForWork(workId);
+      let current = readPublication(localStorage, publicationKey);
+      const isNew = !current;
       if (!current) {
-        current = { id: crypto.randomUUID() };
-        publication.current = current;
-        if (!writePublication(
-          localStorage,
-          publicationKeyForWork(activeWorkId.current),
-          current,
-        )) {
-          throw new Error("Publishing credentials could not be saved");
+        const slug = customSlug ?? window.prompt("自定义分享链接（3–48 位小写字母、数字或连字符）", "")
+          ?.trim().toLowerCase();
+        if (slug == null) return null;
+        if (!/^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])?$/.test(slug)) {
+          window.alert("链接名称格式不正确，请输入 3–48 位小写字母、数字或连字符。");
+          return null;
         }
+        current = { id: slug };
       }
       await pushPublicScene(supabaseConfig, auth, current.id, publishedScene);
+      if (isNew && !writePublication(localStorage, publicationKey, current)) {
+        throw new Error("Publishing credentials could not be saved");
+      }
+      if (workId === activeWorkId.current) publication.current = current;
       const url = new URL(`/s/${current.id}`, location.origin);
       try {
         await navigator.clipboard.writeText(url.href);
@@ -2752,12 +2794,35 @@ function App() {
       return url.href;
     } catch {
       setPublishState("error");
-      return null;
+      return false;
     } finally {
       window.clearTimeout(publishTimer.current);
       publishTimer.current = window.setTimeout(() => setPublishState("idle"), 2400);
     }
   }, [excalidrawAPI, publishState, supabaseConfig]);
+
+  const shareWork = useCallback(async (workId) => {
+    if (!supabaseSessionRef.current) {
+      setSupabaseOpen(true);
+      window.alert("请先登录云同步，再分享作品。");
+      return;
+    }
+    if (!readPublication(localStorage, publicationKeyForWork(workId))) {
+      setShareWorkId(workId);
+      return;
+    }
+    const url = await publish(workId);
+    if (url) window.alert("分享链接已复制。");
+    else if (url === false) window.alert("分享失败，链接名称可能已被使用，请更换后重试。");
+  }, [publish]);
+
+  const publishSharedWork = useCallback(async (slug) => {
+    const workId = shareWorkId;
+    setShareWorkId(null);
+    const url = await publish(workId, slug);
+    if (url) window.alert("分享链接已复制。");
+    else if (url === false) window.alert("分享失败，链接名称可能已被使用，请更换后重试。");
+  }, [publish, shareWorkId]);
 
   const addToNotion = useCallback(() => {
     if (!supabaseSessionRef.current) {
@@ -2874,6 +2939,10 @@ function App() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    if (supabaseSessionRef.current && works.length >= SUPABASE_WORK_LIMIT) {
+      window.alert(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除一个作品再导入。`);
+      return;
+    }
     let imported;
     try {
       const contents = await file.text();
@@ -2888,27 +2957,24 @@ function App() {
       window.alert("这个文件格式无效或已经损坏。");
       return;
     }
-    try {
-      const nextScene = withoutNativeLinks({
+    const nextScene = withoutNativeLinks({
         elements: imported.elements ?? [],
         appState: imported.appState ?? {},
         files: imported.files ?? {},
         storyPath: Array.isArray(imported.storyPath) ? imported.storyPath : [],
-      });
-      const id = crypto.randomUUID();
-      const name = file.name.replace(/\.(?:unfold|excalidraw)$/i, "").trim() || `作品 ${works.length + 1}`;
-      const nextWorks = [...works, { id, name: name.slice(0, 80), updatedAt: Date.now() }];
-      pruneStaleWorkStorage(localStorage, new Set(works.map((work) => work.id)));
-      if (!writeScene(localStorage, sceneKeyForWork(id), nextScene) ||
-        !writeWorks(localStorage, nextWorks)) {
-        localStorage.removeItem(sceneKeyForWork(id));
-        throw new Error("Local storage is full");
-      }
-      setWorks(nextWorks);
-      openWork(id);
-    } catch {
+    });
+    const id = crypto.randomUUID();
+    const name = file.name.replace(/\.(?:unfold|excalidraw)$/i, "").trim() || `作品 ${works.length + 1}`;
+    const nextWorks = [...works, { id, name: name.slice(0, 80), updatedAt: Date.now() }];
+    pruneStaleWorkStorage(localStorage, new Set(works.map((work) => work.id)));
+    if (!writeScene(localStorage, sceneKeyForWork(id), nextScene) ||
+      !writeWorks(localStorage, nextWorks)) {
+      localStorage.removeItem(sceneKeyForWork(id));
       window.alert("文件已读取，但浏览器存储空间不足。请先删除不需要的作品后重试。");
+      return;
     }
+    setWorks(nextWorks);
+    openWork(id);
   }, [openWork, works]);
 
   const previewLinkAppearance = useCallback(({ icon, side, customIcon }) => {
@@ -3478,7 +3544,7 @@ function App() {
               )}
               onSelect={() => fileInputRef.current?.click()}
             >
-              打开文件
+              导入
             </MainMenu.Item>
             <MainMenu.Item
               icon={(
@@ -3613,15 +3679,22 @@ function App() {
         <WorksLibrary
           activeWorkId={activeWorkId.current}
           onBack={() => setWorksOpen(false)}
-          onCreate={createWork}
           onDelete={deleteWork}
           onOpen={openWork}
           onRename={renameWork}
+          onShare={shareWork}
           cloudSync={Boolean(supabaseSession)}
           works={works.map((work) => ({
             ...work,
             scene: readScene(localStorage, sceneKeyForWork(work.id)),
           }))}
+        />
+      )}
+      {!preview && shareWorkId && (
+        <ShareWorkDialog
+          onClose={() => setShareWorkId(null)}
+          onShare={publishSharedWork}
+          work={works.find(({ id }) => id === shareWorkId)}
         />
       )}
       {!preview && clearOpen && (

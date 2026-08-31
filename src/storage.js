@@ -1,3 +1,5 @@
+import { deflate, inflate } from "pako";
+
 export const SCENE_STORAGE_KEY = "story-canvas.scene.v1";
 export const PUBLICATION_STORAGE_KEY = "story-canvas.publication.v1";
 export const WORKS_STORAGE_KEY = "story-canvas.works.v1";
@@ -6,10 +8,30 @@ export const WORKSPACE_UPDATED_STORAGE_KEY = "story-canvas.workspace-updated.v1"
 
 export const sceneKeyForWork = (id) => `${SCENE_STORAGE_KEY}:${id}`;
 export const publicationKeyForWork = (id) => `${PUBLICATION_STORAGE_KEY}:${id}`;
+const COMPRESSED_SCENE_PREFIX = "gzip:";
+
+function encodeStoredScene(scene) {
+  const json = JSON.stringify(scene);
+  if (json.length < 50_000) return json;
+  const bytes = deflate(new TextEncoder().encode(json), { level: 1 });
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
+  }
+  const compressed = `${COMPRESSED_SCENE_PREFIX}${btoa(binary)}`;
+  return compressed.length < json.length ? compressed : json;
+}
+
+function decodeStoredScene(value) {
+  if (!value?.startsWith(COMPRESSED_SCENE_PREFIX)) return JSON.parse(value);
+  const binary = atob(value.slice(COMPRESSED_SCENE_PREFIX.length));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(inflate(bytes)));
+}
 
 export function readScene(storage, key) {
   try {
-    const scene = JSON.parse(storage.getItem(key));
+    const scene = decodeStoredScene(storage.getItem(key));
     return scene && Array.isArray(scene.elements) ? scene : null;
   } catch {
     return null;
@@ -18,7 +40,7 @@ export function readScene(storage, key) {
 
 export function writeScene(storage, key, scene) {
   try {
-    storage.setItem(key, JSON.stringify(scene));
+    storage.setItem(key, encodeStoredScene(scene));
     return true;
   } catch {
     return false;
@@ -202,7 +224,7 @@ export function isEncodedScene(value) {
 }
 
 export function isSceneId(value) {
-  return typeof value === "string" && /^(?:[\w-]{12}|[a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/.test(value);
+  return typeof value === "string" && /^(?:[\w-]{12}|[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])?|[a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/.test(value);
 }
 
 export function isSceneEditKey(value) {

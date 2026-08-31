@@ -13,6 +13,9 @@ colors:
   fill_green: "#edf3ec"
   fill_blue: "#e7f3f8"
   fill_yellow: "#fbf3db"
+  brand_blue: "#3769bd"
+  brand_coral: "#ef5b50"
+  brand_orange: "#ef9948"
 typography:
   interface: "Inter, Noto Sans SC, ui-sans-serif, system-ui, sans-serif"
 layout:
@@ -29,6 +32,8 @@ Unfold（迹·叙）is a quiet white paper surface for hand-drawn stories, expla
 # Colors
 
 Use white paper and Notion-like near-black ink; new authored marks default to that ink at full opacity. Interface states use restrained blue; other authored accents use muted blue, green, and brown. Avoid gradients, saturated panels, and decorative color blocks.
+
+The works library may use the logo palette: cobalt blue for hierarchy and selection, with coral and orange only for small accents. Artwork previews must preserve the canvas background instead of applying a brand tint. Keep the canvas itself neutral white.
 
 # Typography
 

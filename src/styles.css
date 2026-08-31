@@ -1988,6 +1988,11 @@ body,
   align-items: center;
 }
 
+.canvas-app > .excalidraw:not(.excalidraw--mobile) .scroll-back-to-content {
+  position: fixed;
+  left: 50vw;
+}
+
 .excalidraw .zoom-actions,
 .excalidraw .undo-redo-buttons {
   background: transparent;
@@ -3788,13 +3793,16 @@ body,
 }
 
 .works-library {
+  --unfold-brand-blue: #3769bd;
+  --unfold-brand-coral: #ef5b50;
+  --unfold-brand-orange: #ef9948;
   position: fixed;
   z-index: 100;
   inset: 0;
   overflow-y: auto;
-  padding: 56px max(24px, calc((100vw - 1120px) / 2)) 80px;
+  padding: 56px max(24px, calc((100vw - 1440px) / 2)) 80px;
   color: var(--tale-ink);
-  background: #f7f7f5;
+  background: #f8faff;
   font-family: var(--tale-font);
   -webkit-font-smoothing: antialiased;
 }
@@ -3808,7 +3816,7 @@ body,
 }
 
 .works-library__brand {
-  color: var(--tale-muted);
+  color: var(--unfold-brand-coral);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -3820,6 +3828,7 @@ body,
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1.1;
+  color: var(--unfold-brand-blue);
   text-wrap: balance;
 }
 
@@ -3844,7 +3853,8 @@ body,
 }
 
 .works-library__actions button:hover {
-  background: var(--tale-surface-hover);
+  color: var(--unfold-brand-blue);
+  background: #eef3fc;
 }
 
 .works-library__actions button:active,
@@ -3854,18 +3864,21 @@ body,
 
 .works-library__actions button:focus-visible,
 .work-card button:focus-visible {
-  outline: 2px solid var(--tale-accent);
+  outline: 2px solid var(--unfold-brand-blue);
   outline-offset: 2px;
 }
 
-.works-library__actions .works-library__create {
-  color: #fff;
-  background: var(--tale-ink);
+.works-library__actions .works-library__close {
+  width: 40px;
+  padding: 0;
+  color: var(--unfold-brand-blue);
+  background: transparent;
+  box-shadow: none;
 }
 
-.works-library__actions .works-library__create:hover {
-  color: #fff;
-  background: #292722;
+.works-library__actions .works-library__close svg {
+  width: 20px;
+  height: 20px;
 }
 
 .works-library__grid {
@@ -3891,7 +3904,7 @@ body,
 }
 
 .work-card--active {
-  box-shadow: 0 0 0 2px var(--tale-accent), 0 5px 18px rgb(15 15 15 / 5%);
+  box-shadow: 0 0 0 2px var(--unfold-brand-blue), 0 5px 18px rgb(15 15 15 / 5%);
 }
 
 .work-card__preview {
@@ -3900,7 +3913,7 @@ body,
   aspect-ratio: 4 / 3;
   padding: 18px;
   border: 0;
-  background: #e9e9e6;
+  background: #eef3fc;
   cursor: pointer;
 }
 
@@ -3933,6 +3946,7 @@ body,
   align-items: center;
   gap: 8px;
   padding: 10px 10px 10px 14px;
+  border-top: 3px solid var(--unfold-brand-orange);
 }
 
 .work-card__title {
@@ -3998,6 +4012,53 @@ body,
   margin-top: 8px;
   color: var(--tale-muted);
   text-wrap: pretty;
+}
+
+.work-card__tools button:first-child {
+  color: var(--unfold-brand-blue);
+}
+
+.work-card__tools button:last-child:hover {
+  color: var(--unfold-brand-coral);
+  background: #fff0ee;
+}
+
+.share-work-dialog {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.share-work-dialog > p {
+  margin-top: 6px;
+  color: var(--tale-muted);
+}
+
+.share-work-dialog > label {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  margin-top: 16px;
+  padding-left: 14px;
+  overflow: hidden;
+  border: 1px solid rgb(55 53 47 / 18%);
+  border-radius: 8px;
+  color: var(--tale-muted);
+}
+
+.share-work-dialog > label:focus-within {
+  border-color: var(--tale-accent);
+  box-shadow: 0 0 0 2px rgb(35 131 226 / 14%);
+}
+
+.share-work-dialog input {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  padding: 0 14px 0 2px;
+  border: 0;
+  outline: 0;
+  color: var(--tale-ink);
+  background: transparent;
+  font: inherit;
 }
 
 .unfold-dialog__actions {
