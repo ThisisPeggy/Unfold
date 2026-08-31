@@ -58,11 +58,7 @@ import {
   clearHermesConnection,
   createHermesConnection,
   hermesConnectorSetupCommand,
-  installHermesSkill,
-  listHermesSkills,
   readHermesConnection,
-  RECOMMENDED_HERMES_SKILLS,
-  recommendedHermesSkills,
   requestHermesAgent,
   requestHermesLecturePlan,
   saveHermesConnection,
@@ -134,9 +130,9 @@ function hermesSceneRevision(scene) {
 
 function hermesConnectionMessage(error) {
   const message = String(error?.message || error || "");
-  if (/口令|拒绝/.test(message)) return "配对口令不匹配。请重新复制口令，或重新生成后再次配对。";
+  if (/口令格式/.test(message)) return "本地配对口令已损坏，请重新生成口令。";
   if (/WebSocket/.test(message)) return "当前浏览器无法连接本机 Connector。";
-  return "尚未连接到本机 Connector。请确认安装命令已成功运行。";
+  return "";
 }
 
 function AssistantMessageText({ text }) {
@@ -156,17 +152,11 @@ function AssistantMessageText({ text }) {
   );
 }
 
-function extractAsciiArt(text) {
-  const match = String(text || "").match(/```(?:ascii(?:-art)?|text)?\s*\n?([\s\S]*?)```/i);
-  return match?.[1]?.replace(/\s+$/, "") || "";
-}
-
 const ASSISTANT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"]);
 const MAX_ASSISTANT_IMAGE_BYTES = 10 * 1024 * 1024;
 const BUILTIN_AGENT_COMMANDS = [
-  { command: "/image", name: "生成图片", description: "使用 Hermes 原生图片工具，不需要 skill", builtin: true },
-  { command: "/ascii-art", name: "ASCII 艺术", description: "让 Hermes 生成纯文本 ASCII 图案", builtin: true },
-  { command: "/install-skill", name: "安装 GitHub skill", description: "粘贴包含 SKILL.md 的 GitHub 仓库地址", builtin: true },
+  { command: "/生成画布", description: "根据主题和要求生成一张新画布" },
+  { command: "/整理画布", description: "整理并美化当前画布的内容与布局" },
 ];
 
 function AttachmentIcon() {
@@ -588,9 +578,6 @@ function HermesAssistantPanel({
   onConnectionChange,
   onGeneratePlan,
   onInsertImage,
-  onInsertText,
-  onInstallSkill,
-  onListSkills,
   onRunAgent,
   onUndoPlan,
   open,
@@ -608,8 +595,6 @@ function HermesAssistantPanel({
   const [messages, setMessages] = useState([]);
   const [attachments, setAttachments] = useState([]);
   const [attachmentError, setAttachmentError] = useState("");
-  const [skills, setSkills] = useState([]);
-  const [imageGeneration, setImageGeneration] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -628,16 +613,9 @@ function HermesAssistantPanel({
     const match = input.match(/^\/([^\s]*)$/);
     if (!match) return [];
     const query = match[1].toLowerCase();
-    const recommendedCommands = new Set(RECOMMENDED_HERMES_SKILLS.map((skill) => skill.command));
-    const installedRecommended = skills.filter((skill) => recommendedCommands.has(skill.command));
-    return [
-      ...BUILTIN_AGENT_COMMANDS.filter((item) => ["/image", "/ascii-art"].includes(item.command)),
-      ...recommendedHermesSkills(skills),
-      ...installedRecommended,
-    ]
+    return BUILTIN_AGENT_COMMANDS
       .filter((item) => item.command.slice(1).toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [input, skills, slashDismissed]);
+  }, [input, slashDismissed]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -666,22 +644,6 @@ function HermesAssistantPanel({
       window.clearTimeout(timer);
     };
   }, [checkVersion, connection, onConnectionChange, open]);
-
-  useEffect(() => {
-    if (!open || connectionState !== "connected") return undefined;
-    let active = true;
-    onListSkills().then((result) => {
-      if (!active) return;
-      setSkills(result.skills);
-      setImageGeneration(result.imageGeneration);
-    }).catch(() => {
-      if (active) {
-        setSkills([]);
-        setImageGeneration(false);
-      }
-    });
-    return () => { active = false; };
-  }, [connectionState, onListSkills, open]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 640px)");
@@ -793,19 +755,7 @@ function HermesAssistantPanel({
     }))]);
   };
 
-  const refreshSkills = async () => {
-    const result = await onListSkills();
-    setSkills(result.skills);
-    setImageGeneration(result.imageGeneration);
-    return result;
-  };
-
   const selectSlashSuggestion = (item) => {
-    if (item.installUrl) {
-      setSlashDismissed(true);
-      submitPrompt(`/install-skill ${item.installUrl}`, false);
-      return;
-    }
     setInput(`${item.command} `);
     setSlashDismissed(true);
     requestAnimationFrame(() => composerRef.current?.focus());
@@ -831,53 +781,10 @@ function HermesAssistantPanel({
     const controller = new AbortController();
     generationRef.current = controller;
     try {
-      if (displayPrompt.startsWith("/install-skill")) {
-        const url = displayPrompt.slice("/install-skill".length).trim();
-        if (!url) throw new Error("请在 /install-skill 后粘贴 GitHub skill 仓库地址。");
-        const preview = await onInstallSkill(url, false);
-        if (preview.blocked) throw new Error(`Hermes 安全扫描已阻止安装：${preview.summary || preview.reason}`);
-        if (preview.already_installed) {
-          await refreshSkills();
-          setInput(`/${preview.name} `);
-          setMessages((value) => [...value, {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            text: `${preview.name} 已经安装。继续输入你想让它完成的内容。`,
-          }]);
-          return;
-        }
-        const approved = window.confirm(
-          `安装 ${preview.name}？\n\n来源：${preview.source}\n安全扫描：${preview.verdict}，${preview.finding_count} 项提示\n\nSkill 会安装到你本机的 Hermes，并可执行其中描述的工作流。`,
-        );
-        if (!approved) {
-          setMessages((value) => [...value, {
-            id: crypto.randomUUID(), role: "assistant", text: "已取消安装。",
-          }]);
-          return;
-        }
-        const installed = await onInstallSkill(url, true);
-        if (!installed.installed) throw new Error(installed.summary || "Hermes 未能安装这个 skill。");
-        await refreshSkills();
-        setInput(`/${installed.name} `);
-        setMessages((value) => [...value, {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: `${installed.name} 已安装并立即生效。继续输入你想让它完成的内容。`,
-        }]);
-        return;
-      }
-      const agentMode = displayPrompt.startsWith("/") || pendingAttachments.length > 0;
+      const agentMode = pendingAttachments.length > 0;
       if (agentMode) {
-        const imageCommand = displayPrompt.match(/^\/image(?:\s+([\s\S]*))?$/);
-        const asciiCommand = displayPrompt.match(/^\/ascii-art(?:\s+([\s\S]*))?$/);
-        const agentPrompt = imageCommand
-          ? `请使用 image_generate 工具生成图片并把成品返回给用户。${imageCommand[1]?.trim() || "请先询问用户想生成什么图片。"}`
-          : displayPrompt;
-        const resolvedAgentPrompt = asciiCommand
-          ? `Return only plain-text ASCII art. Do not call image tools and do not output JSON. ${asciiCommand[1]?.trim() || "Generate a simple ASCII drawing."}`
-          : agentPrompt;
         const result = await onRunAgent(
-          resolvedAgentPrompt,
+          displayPrompt,
           pendingAttachments.map((item) => item.file),
           agentSessionRef.current,
           controller.signal,
@@ -888,15 +795,18 @@ function HermesAssistantPanel({
           role: "assistant",
           text: result.message || (result.images.length ? "图片已生成。" : "Hermes 已完成。"),
           images: result.images,
-          ...(displayPrompt.startsWith("/ascii-art")
-            ? { asciiArt: extractAsciiArt(result.message) }
-            : {}),
         }]);
         clearAttachments();
         return;
       }
+      const command = displayPrompt.match(/^\/(生成画布|整理画布)(?:\s+([\s\S]*))?$/);
+      const goal = command?.[1] === "生成画布"
+        ? `请从零生成一张新画布。${command[2]?.trim() || "请先询问我要生成什么主题的画布。"}`
+        : command?.[1] === "整理画布"
+          ? `请保留当前画布的核心内容，重新整理信息层级并美化视觉布局。${command[2]?.trim() || ""}`
+          : displayPrompt;
       const draftPlan = [...messages].reverse().find((message) => message.plan)?.plan;
-      const plan = await onGeneratePlan(displayPrompt, draftPlan, conversation, controller.signal);
+      const plan = await onGeneratePlan(goal, draftPlan, conversation, controller.signal);
       setMessages((value) => [...value, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -1037,7 +947,7 @@ function HermesAssistantPanel({
               <div className="assistant-empty-state">
                 <AssistantMascot working={busy} />
                 <h3><span>问问题，也可以整理画布。</span><span>今天想做什么？</span></h3>
-                <p>Hermes 可以聊天、写作、联网查找信息和设计讲解路径；输入 / 可安装推荐的图片 skill。</p>
+                <p>输入 /，可以生成新画布或整理当前画布。</p>
               </div>
             ) : messages.map((message) => (
               <div
@@ -1063,11 +973,6 @@ function HermesAssistantPanel({
                       </figure>
                     ))}
                   </div>
-                )}
-                {message.asciiArt && (
-                  <button type="button" className="assistant-insert-text" onClick={() => onInsertText(message.asciiArt)}>
-                    放到画布
-                  </button>
                 )}
                 {message.error && message.retryPrompt && (
                   <button type="button" className="assistant-retry assistant-retry--message" disabled={busy} onClick={() => {
@@ -1161,7 +1066,7 @@ function HermesAssistantPanel({
           )}
           <div className="assistant-composer-shell">
             {slashSuggestions.length > 0 && (
-              <ul id="hermes-slash-options" className="assistant-slash-options" role="listbox" aria-label="Hermes skills 和命令">
+              <ul id="hermes-slash-options" className="assistant-slash-options" role="listbox" aria-label="Hermes 画布命令">
                 {slashSuggestions.map((item, index) => (
                   <li key={item.command} role="none">
                     <button
@@ -1213,7 +1118,7 @@ function HermesAssistantPanel({
                 ref={composerRef}
                 rows="1"
                 value={input}
-                placeholder="问问题；输入 / 使用 skill 或生图…"
+                placeholder="问问题；输入 / 使用画布命令…"
                 aria-label="发送给 Hermes 的消息"
                 aria-autocomplete="list"
                 aria-expanded={slashSuggestions.length > 0}
@@ -1263,7 +1168,7 @@ function HermesAssistantPanel({
               >
                 <AttachmentIcon />
               </button>
-              <span className="assistant-input-meta" title={imageGeneration ? "Hermes 图片工具已配置" : "Hermes 图片工具尚未配置"}>
+              <span className="assistant-input-meta">
                 {input.length}
               </span>
               <button
@@ -3102,8 +3007,6 @@ function App() {
     });
   }, [updateStoryStep]);
 
-  const listAgentSkills = useCallback(() => listHermesSkills(), []);
-  const installAgentSkill = useCallback((url, confirm) => installHermesSkill(url, confirm), []);
   const runAgent = useCallback((prompt, files, sessionId, signal) =>
     requestHermesAgent(prompt, files, { sessionId, signal }), []);
 
@@ -3153,32 +3056,11 @@ function App() {
     }
   }, [excalidrawAPI, persistScene]);
 
-  const insertAgentText = useCallback((text) => {
-    const appState = excalidrawAPI?.getAppState() ?? latestScene.current.appState;
-    const center = viewportCoordsToSceneCoords({
-      clientX: (appState.offsetLeft ?? 0) + (appState.width ?? window.innerWidth) / 2,
-      clientY: (appState.offsetTop ?? 0) + (appState.height ?? window.innerHeight) / 2,
-    }, appState);
-    const [element] = convertToExcalidrawElements([{
-      type: "text",
-      x: center.x - 220,
-      y: center.y - 100,
-      text: String(text || ""),
-      fontFamily: FONT_FAMILY.Helvetica,
-      fontSize: 20,
-      strokeColor: "#4a4843",
-    }]);
-    const elements = [...latestScene.current.elements, element];
-    const nextScene = { ...latestScene.current, elements };
-    latestScene.current = nextScene;
-    setScene(nextScene);
-    excalidrawAPI?.updateScene({ elements, appState: { selectedElementIds: { [element.id]: true } } });
-    persistScene(nextScene);
-  }, [excalidrawAPI, persistScene]);
-
   const generateAgentPlan = useCallback(async (goal, draftPlan, conversation, signal) => {
     const sourceRevision = hermesSceneRevision(latestScene.current);
-    const scopeElementIds = selectedStoryElementIds;
+    const scopeElementIds = /^请(?:从零生成一张新画布|保留当前画布)/.test(goal)
+      ? []
+      : selectedStoryElementIds;
     const plan = await requestHermesLecturePlan(
       latestScene.current.elements,
       latestScene.current.storyPath,
@@ -3448,9 +3330,6 @@ function App() {
           onConnectionChange={setHermesConnected}
           onGeneratePlan={generateAgentPlan}
           onInsertImage={insertAgentImage}
-          onInsertText={insertAgentText}
-          onInstallSkill={installAgentSkill}
-          onListSkills={listAgentSkills}
           onRunAgent={runAgent}
           onUndoPlan={undoAgentPlan}
           open={!preview && assistantOpen}

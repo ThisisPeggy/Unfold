@@ -4,23 +4,11 @@ import {
   buildHermesLectureRequest,
   createHermesConnection,
   hermesConnectorSetupCommand,
-  installHermesSkill,
-  listHermesSkills,
   makeHermesConnection,
   normalizeHermesLecturePlan,
-  RECOMMENDED_HERMES_SKILLS,
-  recommendedHermesSkills,
   requestHermesAgent,
   requestHermesLecturePlan,
 } from "../src/hermes.js";
-
-test("offers curated Hermes skills until each one is installed", () => {
-  assert.equal(RECOMMENDED_HERMES_SKILLS.length, 2);
-  assert.deepEqual(
-    recommendedHermesSkills([{ command: "/travel-memory-sticker-card" }]).map((skill) => skill.command),
-    ["/photo-abstract-editorial"],
-  );
-});
 
 const elements = [
   { id: "a", type: "text", text: "开始", x: 0, y: 0, width: 40, height: 20 },
@@ -128,6 +116,8 @@ test("connects directly to the local Hermes Connector and validates the plan", a
         assert.match(frame.params.text, /Human goal: "介绍流程"/);
         assert.match(frame.params.text, /describe only these Unfold capabilities/);
         assert.match(frame.params.text, /read-only web_search and web_extract/);
+        assert.match(frame.params.text, /Do not mistake visual canvas organization for lecture-path organization/);
+        assert.match(frame.params.text, /Only if they explicitly ask for a lecture path/);
         this.emit("message", { data: JSON.stringify({ id: frame.id, result: { status: "streaming" } }) });
         this.emit("message", { data: JSON.stringify({
           method: "event",
@@ -197,7 +187,7 @@ test("accepts a safe freeform visual canvas without restricting its composition"
   assert.deepEqual(plan.visual.steps[0].elementKeys, ["title", "core"]);
 });
 
-test("lists and installs skills, uploads an image, and returns generated artifacts", async () => {
+test("uploads an image and returns generated artifacts", async () => {
   class FakeSocket {
     constructor() {
       this.readyState = 1;
@@ -224,14 +214,7 @@ test("lists and installs skills, uploads an image, and returns generated artifac
     }
     send(raw) {
       const frame = JSON.parse(raw);
-      if (frame.method === "skills.list") {
-        this.reply(frame.id, {
-          skills: [{ command: "/memory-card", name: "memory-card", description: "Make a card" }],
-          image_generation: true,
-        });
-      } else if (frame.method === "skills.install") {
-        this.reply(frame.id, { installed: frame.params.confirm, name: "memory-card" });
-      } else if (frame.method === "session.create") {
+      if (frame.method === "session.create") {
         this.reply(frame.id, { session_id: frame.params.session_id || "agent-session" });
       } else if (frame.method === "image.attach_bytes") {
         assert.match(frame.params.data_url, /^data:image\/png;base64,/);
@@ -253,17 +236,7 @@ test("lists and installs skills, uploads an image, and returns generated artifac
   }
 
   const connection = makeHermesConnection("b".repeat(64));
-  const listed = await listHermesSkills(connection, FakeSocket);
-  assert.equal(listed.imageGeneration, true);
-  assert.equal(listed.skills[0].command, "/memory-card");
-  const installed = await installHermesSkill(
-    "https://github.com/owner/repo",
-    true,
-    connection,
-    FakeSocket,
-  );
-  assert.equal(installed.installed, true);
-  const result = await requestHermesAgent("/memory-card make it", [{
+  const result = await requestHermesAgent("make it", [{
     name: "source.png",
     dataUrl: "data:image/png;base64,aGVsbG8=",
   }], {
