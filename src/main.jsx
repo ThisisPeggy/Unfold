@@ -2158,7 +2158,6 @@ function App() {
   const supabaseReady = useRef(false);
   const supabaseSessionRef = useRef(supabaseSession);
   const saveRevision = useRef(0);
-  const cloudSave = useRef(Promise.resolve());
   const activeWorkId = useRef(workspace.activeWorkId);
   const publication = useRef(
     readPublication(localStorage, publicationKeyForWork(workspace.activeWorkId)),
@@ -2208,7 +2207,6 @@ function App() {
     window.clearTimeout(saveTimer.current);
     const revision = ++saveRevision.current;
     const workId = activeWorkId.current;
-    const currentPublication = publication.current;
     setSaveState("saving");
     saveTimer.current = window.setTimeout(() => {
       if (!writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
@@ -2222,31 +2220,7 @@ function App() {
         writeWorks(localStorage, nextWorks);
         return nextWorks;
       });
-      if (!currentPublication) {
-        if (revision === saveRevision.current) setSaveState("saved");
-        return;
-      }
-      cloudSave.current = cloudSave.current
-        .catch(() => {})
-        .then(async () => {
-          const response = await fetch(`/api/scenes?id=${currentPublication.id}`, {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${currentPublication.editKey}`,
-              "Content-Type": "text/plain; charset=utf-8",
-            },
-            body: await encodeScene(nextScene),
-          });
-          if (!response.ok) throw new Error("Cloud save failed");
-        });
-      cloudSave.current.then(
-        () => {
-          if (revision === saveRevision.current) setSaveState("saved");
-        },
-        () => {
-          if (revision === saveRevision.current) setSaveState("error");
-        },
-      );
+      if (revision === saveRevision.current) setSaveState("saved");
     }, 400);
   }, []);
 
@@ -3438,25 +3412,6 @@ function App() {
       >
         <span className="control-button__label">{preview ? "返回编辑" : "讲解模式"}</span>
       </button>
-      {!preview && (
-        <button
-          className="control-button control-button--publish"
-          type="button"
-          disabled={publishState === "working"}
-          aria-busy={publishState === "working"}
-          onClick={publish}
-        >
-          {publishState === "working"
-            ? "生成中"
-            : publishState === "copied"
-              ? "已复制"
-              : publishState === "ready"
-                ? "已生成"
-                : publishState === "error"
-                  ? "发布失败"
-                  : "发布"}
-        </button>
-      )}
     </div>
   );
 

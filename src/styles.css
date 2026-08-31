@@ -180,18 +180,6 @@ body,
   background: var(--tale-accent-soft);
 }
 
-.control-button--publish {
-  min-width: 0;
-  justify-content: center;
-  color: #fff;
-  background: var(--tale-ink);
-}
-
-.control-button--publish:hover {
-  color: #fff;
-  background: #292722;
-}
-
 .control-button:disabled {
   cursor: wait;
   opacity: 0.65;
@@ -3091,15 +3079,10 @@ body,
     white-space: nowrap;
   }
 
-  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--preview, .control-button--publish) {
+  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--preview) {
     width: 32px;
     justify-content: center;
     padding: 0;
-  }
-
-  .canvas-controls--embedded .control-button--publish {
-    width: auto;
-    padding: 0 8px;
   }
 
   .canvas-controls--embedded .control-button--preview {
