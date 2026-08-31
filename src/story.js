@@ -565,6 +565,15 @@ export function mergeHermesStoryPath(
 export function stashStoryLinks(elements) {
   let changed = false;
   const nextElements = elements.map((element) => {
+    if (["embeddable", "iframe"].includes(element.type)) {
+      if (element.link && !element.customData?.storyLink) return element;
+      const href = element.link ?? safeStoryHref(element.customData?.storyLink);
+      if (!href) return element;
+      changed = true;
+      const customData = { ...element.customData };
+      delete customData.storyLink;
+      return { ...element, link: href, customData };
+    }
     if (!element.link) return element;
     changed = true;
     const href = safeStoryHref(element.link);
