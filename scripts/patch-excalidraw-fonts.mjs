@@ -372,6 +372,39 @@ const patches = [
     'return Xr({fontFamily:F.fontFamily})!==j||`${F.fontSize}px`!==O.style.fontSize',
     'return Xr({fontFamily:F.fontFamily})!==j||`${F.fontSize}px`!==O.style.fontSize||(O.style.fontWeight==="700")!==!!F.customData?.unfoldBold',
   ],
+  [
+    `  embeddedLinkCache.set(link, {
+    link,
+    intrinsicSize: aspectRatio,
+    type,
+    sandbox: { allowSameOrigin }
+  });
+  return {
+    link,
+    intrinsicSize: aspectRatio,
+    type,
+    sandbox: { allowSameOrigin }
+  };
+};`,
+    `  const allowGenericSameOrigin = new URL(link, globalThis.location.href).origin !== globalThis.location.origin;
+  embeddedLinkCache.set(link, {
+    link,
+    intrinsicSize: aspectRatio,
+    type,
+    sandbox: { allowSameOrigin: allowGenericSameOrigin }
+  });
+  return {
+    link,
+    intrinsicSize: aspectRatio,
+    type,
+    sandbox: { allowSameOrigin: allowGenericSameOrigin }
+  };
+};`,
+  ],
+  [
+    'return Xt.set(e,{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:n}}),{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:n}}',
+    'return Xt.set(e,{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:globalThis.location.origin!==new URL(e,globalThis.location.href).origin}}),{link:e,intrinsicSize:o,type:r,sandbox:{allowSameOrigin:globalThis.location.origin!==new URL(e,globalThis.location.href).origin}}',
+  ],
 ];
 
 const iconPatches = [
@@ -426,7 +459,7 @@ for (const file of files) {
   if (changed) fs.writeFileSync(file, source);
 }
 
-// ponytail: pinned bundle patch; delete when Excalidraw exposes custom font registration.
+// ponytail: pinned bundle patches; delete when Excalidraw exposes the required extension hooks.
 const customFontsVerified = files.filter((file) => {
   const source = fs.readFileSync(file, "utf8");
   return source.includes('"小赖字体"') &&
@@ -490,6 +523,9 @@ const selectionMenuVerified = files.filter((file) => {
   return source.includes('isHittingCommonBoundBox || selectedElements.length') ||
     source.includes('s=i||l||a.length?"element":"canvas"');
 }).length;
+const externalEmbedsVerified = files.filter((file) =>
+  fs.readFileSync(file, "utf8").includes("globalThis.location.href"),
+).length;
 
 // Verification - require at least 1 instance of each critical patch
 const minRequired = {
@@ -506,6 +542,7 @@ const minRequired = {
   laserRemoved: 2,
   libraryActionRemoved: 2,
   selectionMenu: 2,
+  externalEmbeds: 2,
 };
 
 const verificationResults = {
@@ -522,6 +559,7 @@ const verificationResults = {
   laserRemoved: laserRemovedVerified,
   libraryActionRemoved: libraryActionRemovedVerified,
   selectionMenu: selectionMenuVerified,
+  externalEmbeds: externalEmbedsVerified,
 };
 
 const failures = Object.entries(minRequired).filter(
