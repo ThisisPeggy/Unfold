@@ -1168,9 +1168,6 @@ function HermesAssistantPanel({
               >
                 <AttachmentIcon />
               </button>
-              <span className="assistant-input-meta">
-                {input.length}
-              </span>
               <button
                 className="assistant-send-button"
                 type={busy ? "button" : "submit"}
@@ -1653,6 +1650,7 @@ function UnfoldDialog({ children, className = "", onClose, showClose = true, tit
 
   useEffect(() => {
     dialogRef.current?.showModal();
+    dialogRef.current?.focus({ preventScroll: true });
   }, []);
 
   return (
@@ -1664,6 +1662,7 @@ function UnfoldDialog({ children, className = "", onClose, showClose = true, tit
         onClose();
       }}
       ref={dialogRef}
+      tabIndex="-1"
     >
       <header>
         <h2 id="unfold-dialog-title">{title}</h2>
@@ -2082,21 +2081,6 @@ function App() {
   );
   const cameraPreviewStep = editorStorySteps.find((step) => step.id === cameraPreviewStepId) ?? null;
 
-  useEffect(() => installContextMenuOrganizer(document.querySelector(".canvas-app"), () => {
-    const appState = excalidrawAPI?.getAppState();
-    const selected = excalidrawAPI?.getSceneElements().filter((element) =>
-      !element.isDeleted && appState?.selectedElementIds?.[element.id],
-    );
-    if (!appState || !selected?.length) return null;
-    const [x1, y1, x2] = getCommonBounds(selected);
-    const zoom = appState.zoom.value;
-    return {
-      left: (x2 + appState.scrollX) * zoom,
-      fallbackLeft: (x1 + appState.scrollX) * zoom,
-      top: (y1 + appState.scrollY) * zoom,
-      viewport: { width: appState.width, height: appState.height },
-    };
-  }), [excalidrawAPI]);
   const selectedStoryElementIds = useMemo(
     () => Object.keys(editorView.appState.selectedElementIds ?? {}).filter((id) =>
       editorView.elements.some((element) => element.id === id && !element.isDeleted),
@@ -2294,6 +2278,34 @@ function App() {
   }, [ensureSupabaseSession, supabaseConfig, supabaseSession, works]);
 
   const createWork = useCallback(() => {
+    if (!supabaseSessionRef.current) {
+      if (!window.confirm("尚未登录。新建会清空当前画布，且无法恢复。确定继续吗？")) return;
+      const appState = {
+        ...latestScene.current.appState,
+        scrollX: 0,
+        scrollY: 0,
+        zoom: { value: 1 },
+        selectedElementIds: {},
+        selectedGroupIds: {},
+      };
+      const nextScene = { elements: [], appState, files: {}, storyPath: [] };
+      latestScene.current = nextScene;
+      setWorksOpen(false);
+      setLinkEditorId(null);
+      setPathEditorOpen(false);
+      setAssistantOpen(false);
+      setScene(nextScene);
+      setEditorView({ elements: [], appState });
+      setStoryPath([]);
+      excalidrawAPI?.resetScene();
+      excalidrawAPI?.updateScene({ elements: [], appState });
+      persistScene(nextScene);
+      return;
+    }
+    if (!writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current)) {
+      window.alert("当前作品保存失败，已停止新建。");
+      return;
+    }
     const suggestedName = `作品 ${works.length + 1}`;
     const name = window.prompt("作品名称", suggestedName)?.trim().slice(0, 80);
     if (!name) return;
@@ -2324,7 +2336,7 @@ function App() {
     }
     setWorks(nextWorks);
     openWork(id);
-  }, [openWork, works]);
+  }, [excalidrawAPI, openWork, persistScene, works]);
 
   const renameWork = useCallback((workId) => {
     const work = works.find(({ id }) => id === workId);
@@ -2703,21 +2715,6 @@ function App() {
     });
   }, [excalidrawAPI]);
 
-  const handleClearShortcut = useCallback((event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (
-      preview || exportOpen || clearOpen ||
-      target?.closest("input, textarea, select, [contenteditable]") ||
-      (!event.metaKey && !event.ctrlKey) ||
-      event.altKey ||
-      event.shiftKey ||
-      !["Backspace", "Delete"].includes(event.key)
-    ) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setClearOpen(true);
-  }, [clearOpen, exportOpen, preview]);
-
   const publish = useCallback(async () => {
     if (publishState === "working") return null;
     const auth = supabaseSessionRef.current;
@@ -2832,6 +2829,46 @@ function App() {
       setExportError("导出失败，请稍后重试。");
     }
   }, [saveUnfoldFile]);
+
+  useEffect(() => installContextMenuOrganizer(document.querySelector(".canvas-app"), () => {
+    const appState = excalidrawAPI?.getAppState();
+    const selected = excalidrawAPI?.getSceneElements().filter((element) =>
+      !element.isDeleted && appState?.selectedElementIds?.[element.id],
+    );
+    if (!appState || !selected?.length) return null;
+    const [x1, y1, x2] = getCommonBounds(selected);
+    const zoom = appState.zoom.value;
+    return {
+      left: (x2 + appState.scrollX) * zoom,
+      fallbackLeft: (x1 + appState.scrollX) * zoom,
+      top: (y1 + appState.scrollY) * zoom,
+      viewport: { width: appState.width, height: appState.height },
+    };
+  }, [
+    { label: "新建", shortcut: "Ctrl+N", onSelect: createWork },
+    { label: "保存", shortcut: "Ctrl+S", onSelect: saveUnfoldFile },
+    { label: "导出", shortcut: "Ctrl+Shift+E", onSelect: () => setExportOpen(true) },
+    { label: "清空", shortcut: "Ctrl+Del", onSelect: () => setClearOpen(true) },
+  ]), [createWork, excalidrawAPI, saveUnfoldFile]);
+
+  const handleCanvasShortcut = useCallback((event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      preview || exportOpen || clearOpen || event.altKey ||
+      target?.closest("input, textarea, select, [contenteditable]") ||
+      (!event.metaKey && !event.ctrlKey)
+    ) return;
+    const key = event.key.toLowerCase();
+    let action;
+    if (!event.shiftKey && key === "n") action = createWork;
+    else if (!event.shiftKey && key === "s") action = saveUnfoldFile;
+    else if (event.shiftKey && key === "e") action = () => setExportOpen(true);
+    else if (!event.shiftKey && ["backspace", "delete"].includes(key)) action = () => setClearOpen(true);
+    if (!action) return;
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  }, [clearOpen, createWork, exportOpen, preview, saveUnfoldFile]);
 
   const openUnfoldFile = useCallback(async (event) => {
     const file = event.target.files?.[0];
@@ -3210,6 +3247,18 @@ function App() {
       )}
       {!preview && (
         <button
+          className="control-button"
+          type="button"
+          title="新建作品"
+          aria-label="新建作品"
+          onClick={createWork}
+        >
+          <span aria-hidden="true">＋</span>
+          <span className="control-button__label">新建</span>
+        </button>
+      )}
+      {!preview && (
+        <button
           ref={assistantButtonRef}
           className="control-button control-button--hermes"
           type="button"
@@ -3268,7 +3317,7 @@ function App() {
   return (
     <main
       className={`canvas-app${isShared ? " canvas-app--shared" : ""}${highlighterActive ? " canvas-app--highlighting" : ""}`}
-      onKeyDownCapture={handleClearShortcut}
+      onKeyDownCapture={handleCanvasShortcut}
     >
       <input
         ref={fileInputRef}

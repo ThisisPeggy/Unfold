@@ -1039,8 +1039,8 @@ body,
 
 .assistant-composer textarea {
   grid-column: 1 / -1;
-  min-height: 34px;
-  max-height: 132px;
+  min-height: 72px;
+  max-height: 180px;
   width: 100%;
   field-sizing: content;
   resize: none;
@@ -1115,15 +1115,6 @@ body,
   color: var(--tale-danger);
   font-size: 11px;
   line-height: 1.4;
-}
-
-.assistant-input-meta {
-  align-self: center;
-  grid-column: 2;
-  padding-left: 4px;
-  color: #a7a6a3;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
 
 .assistant-composer .assistant-send-button {
@@ -2088,6 +2079,18 @@ body,
 
 .canvas-app > .excalidraw .default-sidebar-trigger {
   display: none;
+}
+
+.canvas-app > .excalidraw .App-menu_top {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.canvas-app > .excalidraw:not(.excalidraw--mobile) .App-menu_top .shapes-section {
+  position: fixed;
+  top: 16px;
+  left: 50vw;
+  transform: translateX(-50%);
 }
 
 .HelpDialog__header {
@@ -3250,6 +3253,10 @@ body,
   background: rgb(15 15 15 / 24%);
 }
 
+.unfold-dialog:focus {
+  outline: none;
+}
+
 .unfold-dialog header {
   display: flex;
   align-items: center;
@@ -3341,44 +3348,44 @@ body,
 }
 
 .supabase-sync-dialog {
-  width: min(400px, calc(100vw - 32px));
+  width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   padding: 0;
   overflow-y: auto;
-  border-radius: 10px;
+  border-radius: 14px;
 }
 
 .supabase-sync-dialog > header {
-  padding: 16px 20px;
+  padding: 14px 18px;
   border-bottom: 1px solid rgb(55 53 47 / 9%);
 }
 
 .supabase-sync-dialog__hero {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 24px 24px 14px;
+  gap: 10px;
+  padding: 18px 20px 14px;
 }
 
 .supabase-sync-dialog__icon {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   place-items: center;
-  border-radius: 10px;
-  color: var(--tale-ink);
-  background: #f1f1ef;
+  border-radius: 8px;
+  color: var(--tale-muted);
+  background: var(--tale-surface-subtle);
 }
 
 .supabase-sync-dialog__icon svg {
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
 }
 
 .supabase-sync-dialog__hero h3 {
   margin: 0 0 4px;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   text-wrap: balance;
@@ -3701,13 +3708,13 @@ body,
   }
 }
 
-.supabase-sync-dialog__unavailable {
-  margin: 0 20px 20px;
-  padding: 10px 12px;
+.supabase-sync-dialog .supabase-sync-dialog__unavailable {
+  margin: 0 20px 18px 62px;
+  padding: 0;
   border-radius: 6px;
-  color: var(--tale-danger);
-  background: #fbe4e4;
-  font-size: 12px;
+  color: var(--tale-muted);
+  background: transparent;
+  font-size: 11px;
 }
 
 .supabase-sync-dialog .unfold-dialog__actions {

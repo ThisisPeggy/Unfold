@@ -44,55 +44,61 @@ function separator() {
   return element;
 }
 
-function organizeContextMenu(menu, getAnchor) {
+function actionRow({ label, shortcut, onSelect }) {
+  const row = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "context-menu-item";
+  button.innerHTML = `<span class="context-menu-item__label">${label}</span>${shortcut ? `<kbd class="context-menu-item__shortcut">${shortcut}</kbd>` : ""}`;
+  button.addEventListener("click", onSelect);
+  row.append(button);
+  return row;
+}
+
+function organizeContextMenu(menu, getAnchor, extraActions) {
   if (menu.dataset.unfoldOrganized) return;
   menu.dataset.unfoldOrganized = "true";
 
   const actions = [...menu.children].filter((item) => item.dataset?.testid);
   const actionNames = actions.map((item) => item.dataset.testid);
   const { primary, more } = splitContextMenuActions(actionNames);
-  if (!more.length) return;
-
   const actionsByName = new Map(actions.map((item) => [item.dataset.testid, item]));
   actionsByName.forEach((item, name) => {
     if (ACTION_LABELS[name]) {
       item.querySelector(".context-menu-item__label").textContent = ACTION_LABELS[name];
     }
   });
-  const moreMenu = document.createElement("ul");
-  moreMenu.className = "context-menu context-menu-more";
-  moreMenu.dataset.unfoldOrganized = "true";
-  moreMenu.hidden = true;
-  more.forEach((name) => moreMenu.append(actionsByName.get(name)));
-
-  const moreRow = document.createElement("li");
-  moreRow.className = "context-menu-more-row";
-  const moreButton = document.createElement("button");
-  moreButton.type = "button";
-  moreButton.className = "context-menu-item";
-  moreButton.setAttribute("aria-expanded", "false");
-  moreButton.setAttribute("aria-haspopup", "menu");
-  moreButton.innerHTML = '<span class="context-menu-item__label">更多</span><kbd class="context-menu-item__shortcut">›</kbd>';
-  moreButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const open = moreMenu.hidden;
-    moreMenu.hidden = !open;
-    moreButton.setAttribute("aria-expanded", String(open));
-    if (open) {
-      moreRow.classList.toggle(
-        "context-menu-more-row--left",
-        moreRow.getBoundingClientRect().right + 244 > window.innerWidth,
-      );
-    }
-  });
-  moreRow.append(moreButton, moreMenu);
-
-  menu.replaceChildren(...primary.map((name) => actionsByName.get(name)));
+  menu.replaceChildren(...extraActions.map(actionRow));
+  if (primary.length) menu.append(separator(), ...primary.map((name) => actionsByName.get(name)));
   if (primary.includes("deleteSelectedElements")) {
     const deleteItem = actionsByName.get("deleteSelectedElements");
     menu.insertBefore(separator(), deleteItem);
   }
-  menu.append(separator(), moreRow);
+  if (more.length) {
+    const moreMenu = document.createElement("ul");
+    moreMenu.className = "context-menu context-menu-more";
+    moreMenu.dataset.unfoldOrganized = "true";
+    moreMenu.hidden = true;
+    more.forEach((name) => moreMenu.append(actionsByName.get(name)));
+    const moreRow = actionRow({ label: "更多", onSelect: (event) => {
+      event.stopPropagation();
+      const button = event.currentTarget;
+      const open = moreMenu.hidden;
+      moreMenu.hidden = !open;
+      button.setAttribute("aria-expanded", String(open));
+      if (open) moreRow.classList.toggle(
+        "context-menu-more-row--left",
+        moreRow.getBoundingClientRect().right + 244 > window.innerWidth,
+      );
+    } });
+    moreRow.className = "context-menu-more-row";
+    const moreButton = moreRow.querySelector("button");
+    moreButton.setAttribute("aria-expanded", "false");
+    moreButton.setAttribute("aria-haspopup", "menu");
+    moreButton.insertAdjacentHTML("beforeend", '<kbd class="context-menu-item__shortcut">›</kbd>');
+    moreRow.append(moreMenu);
+    menu.append(separator(), moreRow);
+  }
 
   requestAnimationFrame(() => {
     const anchor = getAnchor?.();
@@ -104,17 +110,17 @@ function organizeContextMenu(menu, getAnchor) {
   });
 }
 
-export function installContextMenuOrganizer(root, getAnchor) {
+export function installContextMenuOrganizer(root, getAnchor, extraActions = []) {
   const organize = (node) => {
     if (!(node instanceof Element)) return;
-    if (node.matches(".context-menu")) organizeContextMenu(node, getAnchor);
-    node.querySelectorAll(".context-menu").forEach((menu) => organizeContextMenu(menu, getAnchor));
+    if (node.matches(".context-menu")) organizeContextMenu(node, getAnchor, extraActions);
+    node.querySelectorAll(".context-menu").forEach((menu) => organizeContextMenu(menu, getAnchor, extraActions));
   };
   const observer = new MutationObserver((records) => {
     records.forEach((record) => record.addedNodes.forEach(organize));
   });
   observer.observe(root, { childList: true, subtree: true });
-  root.querySelectorAll(".context-menu").forEach((menu) => organizeContextMenu(menu, getAnchor));
+  root.querySelectorAll(".context-menu").forEach((menu) => organizeContextMenu(menu, getAnchor, extraActions));
   // ponytail: reuse Excalidraw's menu actions until it exposes a custom context-menu API.
   return () => observer.disconnect();
 }
