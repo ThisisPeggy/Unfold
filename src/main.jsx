@@ -27,6 +27,7 @@ import {
   decodeScene,
   initializeWorkStorage,
   initializeSceneStorage,
+  mergeWorkspaceSnapshots,
   parseUnfoldScene,
   parseWorkspaceSnapshot,
   pruneStaleWorkStorage,
@@ -49,11 +50,9 @@ import {
   pushSupabaseWorkspace,
   readSupabaseSession,
   refreshSupabaseSession,
-  shouldPullSupabaseWorkspace,
   signInSupabase,
   signUpSupabase,
   SUPABASE_SESSION_STORAGE_KEY,
-  SUPABASE_SYNC_OWNER_STORAGE_KEY,
   SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
   writeSupabaseSession,
@@ -2193,31 +2192,27 @@ function App() {
     return refreshed;
   }, []);
 
+  const mergeSupabaseWorkspace = useCallback(async (config, auth) => {
+    const cloud = await pullSupabaseWorkspace(config, auth);
+    const cloudSnapshot = cloud && parseWorkspaceSnapshot(cloud);
+    if (cloud && !cloudSnapshot) throw new Error("云端作品数据格式无效。");
+    const local = createWorkspaceSnapshot(
+      localStorage,
+      worksRef.current,
+      activeWorkId.current,
+    );
+    const merged = cloud
+      ? mergeWorkspaceSnapshots(local, cloudSnapshot, latestScene.current)
+      : { ...local, scenes: { ...local.scenes, [local.activeWorkId]: latestScene.current } };
+    if (cloud) await applyCloudWorkspace(merged);
+    await pushSupabaseWorkspace(config, auth, merged);
+  }, [applyCloudWorkspace]);
+
   const syncExistingSupabase = useCallback(async (config) => {
     setSupabaseState("syncing");
     try {
       const auth = await ensureSupabaseSession(config);
-      const cloud = await pullSupabaseWorkspace(config, auth);
-      const local = createWorkspaceSnapshot(
-        localStorage,
-        worksRef.current,
-        activeWorkId.current,
-      );
-      if (cloud) {
-        const snapshot = parseWorkspaceSnapshot(cloud);
-        if (!snapshot) throw new Error("云端作品数据格式无效。");
-        if (shouldPullSupabaseWorkspace(local, {
-          ...snapshot,
-          userId: auth.user.id,
-        }, localStorage.getItem(SUPABASE_SYNC_OWNER_STORAGE_KEY))) {
-          await applyCloudWorkspace(snapshot);
-        } else if (snapshot.updatedAt < local.updatedAt) {
-          await pushSupabaseWorkspace(config, auth, local);
-        }
-      } else {
-        await pushSupabaseWorkspace(config, auth, local);
-      }
-      localStorage.setItem(SUPABASE_SYNC_OWNER_STORAGE_KEY, auth.user.id);
+      await mergeSupabaseWorkspace(config, auth);
       supabaseReady.current = true;
       setSupabaseState("connected");
     } catch (error) {
@@ -2225,7 +2220,7 @@ function App() {
       setSupabaseState("error");
       throw error;
     }
-  }, [applyCloudWorkspace, ensureSupabaseSession]);
+  }, [ensureSupabaseSession, mergeSupabaseWorkspace]);
 
   const connectSupabase = useCallback(async (settings) => {
     const config = supabaseConfig;
@@ -2240,27 +2235,10 @@ function App() {
         return { pending: true };
       }
       const auth = authResult.session;
-      const cloud = await pullSupabaseWorkspace(config, auth);
-      const local = createWorkspaceSnapshot(
-        localStorage,
-        worksRef.current,
-        activeWorkId.current,
-      );
-      if (cloud) {
-        const snapshot = parseWorkspaceSnapshot(cloud);
-        if (!snapshot) throw new Error("云端作品数据格式无效。");
-        const useCloud = window.confirm(
-          "云端已有作品。\n\n确定：下载云端作品并替换本地作品库\n取消：保留本地作品并上传到云端",
-        );
-        if (useCloud) await applyCloudWorkspace(snapshot);
-        else await pushSupabaseWorkspace(config, auth, local);
-      } else {
-        await pushSupabaseWorkspace(config, auth, local);
-      }
+      await mergeSupabaseWorkspace(config, auth);
       if (!writeSupabaseSession(localStorage, auth)) {
         throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
-      localStorage.setItem(SUPABASE_SYNC_OWNER_STORAGE_KEY, auth.user.id);
       supabaseSessionRef.current = auth;
       supabaseReady.current = true;
       setSupabaseSession(auth);
@@ -2271,7 +2249,7 @@ function App() {
       setSupabaseState("error");
       throw error;
     }
-  }, [applyCloudWorkspace, supabaseConfig]);
+  }, [mergeSupabaseWorkspace, supabaseConfig]);
 
   const disconnectSupabase = useCallback(() => {
     window.clearTimeout(supabaseTimer.current);

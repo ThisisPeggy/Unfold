@@ -1,7 +1,6 @@
 import { MAX_SHARED_SCENE_BYTES } from "./storage.js";
 
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
-export const SUPABASE_SYNC_OWNER_STORAGE_KEY = "unfold.supabase.sync-owner.v1";
 export const SUPABASE_WORK_LIMIT = 10;
 const IMAGE_BUCKET = "unfold-images";
 const PUBLIC_IMAGE_BUCKET = "unfold-public-images";
@@ -54,10 +53,6 @@ export function writeSupabaseSession(storage, session) {
   } catch {
     return false;
   }
-}
-
-export function shouldPullSupabaseWorkspace(local, cloud, syncedUserId) {
-  return syncedUserId !== cloud.userId || cloud.updatedAt > local.updatedAt;
 }
 
 const headers = (config, session, json = false) => ({

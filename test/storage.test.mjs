@@ -7,6 +7,7 @@ import {
   encodeScene,
   initializeWorkStorage,
   initializeSceneStorage,
+  mergeWorkspaceSnapshots,
   isEncodedScene,
   isSceneEditKey,
   isSceneId,
@@ -164,6 +165,29 @@ test("round-trips a complete cloud workspace snapshot", async () => {
   assert.equal(await writeWorkspaceSnapshot(storage, snapshot), true);
   assert.deepEqual(readScene(storage, sceneKeyForWork(id)), scene);
   assert.equal(storage.getItem(ACTIVE_WORK_STORAGE_KEY), id);
+});
+
+test("merges cloud works without replacing the current local canvas", () => {
+  const current = { id: "11111111-1111-4111-8111-111111111111", name: "Current", updatedAt: 1 };
+  const other = { id: "22222222-2222-4222-8222-222222222222", name: "Other", updatedAt: 1 };
+  const cloudOnly = { id: "33333333-3333-4333-8333-333333333333", name: "Cloud", updatedAt: 2 };
+  const localScene = { elements: [{ id: "local" }], appState: {}, files: {} };
+  const cloudScene = { elements: [{ id: "cloud" }], appState: {}, files: {} };
+  const merged = mergeWorkspaceSnapshots(
+    { version: 1, updatedAt: 1, activeWorkId: current.id, works: [current, other], scenes: {} },
+    {
+      version: 1,
+      updatedAt: 2,
+      activeWorkId: other.id,
+      works: [{ ...current, updatedAt: 2 }, { ...other, updatedAt: 2 }, cloudOnly],
+      scenes: { [current.id]: cloudScene, [other.id]: cloudScene, [cloudOnly.id]: cloudScene },
+    },
+    localScene,
+  );
+  assert.equal(merged.activeWorkId, current.id);
+  assert.deepEqual(merged.works.map(({ id }) => id), [current.id, other.id, cloudOnly.id]);
+  assert.equal(merged.scenes[current.id], localScene);
+  assert.equal(merged.scenes[other.id], cloudScene);
 });
 
 test("restores an arrowhead only for the arrow tool", () => {

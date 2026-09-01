@@ -214,6 +214,29 @@ export function createWorkspaceSnapshot(storage, works, activeWorkId) {
   };
 }
 
+export function mergeWorkspaceSnapshots(local, cloud, activeScene) {
+  const localIds = new Set(local.works.map(({ id }) => id));
+  const cloudWorks = new Map(cloud.works.map((work) => [work.id, work]));
+  const works = local.works.map((localWork) => {
+    const cloudWork = cloudWorks.get(localWork.id);
+    return localWork.id === local.activeWorkId || !cloudWork || localWork.updatedAt >= cloudWork.updatedAt
+      ? localWork
+      : cloudWork;
+  }).concat(cloud.works.filter(({ id }) => !localIds.has(id)));
+  return {
+    version: 1,
+    updatedAt: Math.max(local.updatedAt, cloud.updatedAt),
+    activeWorkId: local.activeWorkId,
+    works,
+    scenes: Object.fromEntries(works.map((work) => [
+      work.id,
+      work.id === local.activeWorkId
+        ? activeScene
+        : work === cloudWorks.get(work.id) ? cloud.scenes[work.id] : local.scenes[work.id],
+    ])),
+  };
+}
+
 export function parseWorkspaceSnapshot(value) {
   if (!value || value.version !== 1 || !Number.isFinite(value.updatedAt)) return null;
   const memory = { getItem: () => JSON.stringify(value.works) };
