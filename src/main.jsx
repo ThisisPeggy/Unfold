@@ -321,6 +321,15 @@ function withoutNativeLinks(scene) {
   };
 }
 
+// 打开作品时把整幅内容放进视口：大画布缩小到全览，小画布保持 100%（fitToContent 不会放大）
+function fitWorkToViewport(api, elements) {
+  if (!api || !elements?.length) return;
+  requestAnimationFrame(() => api.scrollToContent(elements, {
+    fitToContent: true,
+    viewportZoomFactor: 0.9,
+  }));
+}
+
 function ChevronIcon({ direction }) {
   const paths = {
     left: "m15 18-6-6 6-6",
@@ -2166,8 +2175,15 @@ function App() {
       excalidrawAPI?.resetScene();
       excalidrawAPI?.addFiles(Object.values(nextScene.files ?? {}));
       excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
+      fitWorkToViewport(excalidrawAPI, nextScene.elements);
     }
   }, [excalidrawAPI, preview]);
+
+  // 首屏：initialData 只会居中不会缩小，画布就绪时统一走同一套自适应
+  useEffect(() => {
+    if (!excalidrawAPI || isShared) return;
+    fitWorkToViewport(excalidrawAPI, latestScene.current?.elements);
+  }, [excalidrawAPI, isShared]);
 
   const applyCloudWorkspace = useCallback(async (value) => {
     const snapshot = parseWorkspaceSnapshot(value);
@@ -2892,6 +2908,8 @@ function App() {
     };
   }, [
     { label: "新建", shortcut: "Ctrl+N", onSelect: createWork },
+    { label: "适应屏幕", shortcut: "Shift+1", onSelect: () =>
+      fitWorkToViewport(excalidrawAPI, excalidrawAPI?.getSceneElements()) },
     { label: "保存", shortcut: "Ctrl+S", onSelect: saveUnfoldFile },
     { label: "导出", shortcut: "Ctrl+Shift+E", onSelect: () => setExportOpen(true) },
     { label: "清空", shortcut: "Ctrl+Del", onSelect: () => setClearOpen(true) },

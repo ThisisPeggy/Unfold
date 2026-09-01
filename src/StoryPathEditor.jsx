@@ -252,7 +252,7 @@ export default function StoryPathEditor({
                 </button>
               </section>
 
-              <details className="story-camera-quick">
+              <details className="story-camera-quick" open>
                 <summary>快速效果（可选）</summary>
                 <div className="story-camera-presets">
                   <button
