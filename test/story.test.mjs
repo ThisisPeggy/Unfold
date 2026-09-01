@@ -118,8 +118,16 @@ test("chooses a doodle and places it beside linked elements", () => {
   const [linked] = stashStoryLinks([{ id: "a", type: "rectangle", link: "https://example.com/work" }]);
   assert.equal(linked.link, null);
   assert.equal(getStoryHref(linked), "https://example.com/work");
-  const [embedded] = stashStoryLinks([{ id: "embed", type: "embeddable", link: "https://example.com" }]);
+  const [embedded] = stashStoryLinks([{
+    id: "embed",
+    type: "embeddable",
+    link: "https://example.com",
+    roughness: 1,
+    strokeWidth: 2,
+  }]);
   assert.equal(embedded.link, "https://example.com");
+  assert.equal(embedded.roughness, 0);
+  assert.equal(embedded.strokeWidth, 1);
   assert.equal(embedded.customData, undefined);
   const [repairedEmbed] = stashStoryLinks([{
     id: "old-embed",

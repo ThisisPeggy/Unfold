@@ -566,13 +566,17 @@ export function stashStoryLinks(elements) {
   let changed = false;
   const nextElements = elements.map((element) => {
     if (["embeddable", "iframe"].includes(element.type)) {
-      if (element.link && !element.customData?.storyLink) return element;
-      const href = element.link ?? safeStoryHref(element.customData?.storyLink);
-      if (!href) return element;
+      const polished = element.roughness === 0 && element.strokeWidth === 1
+        ? element
+        : { ...element, roughness: 0, strokeWidth: 1 };
+      if (polished !== element) changed = true;
+      if (polished.link && !polished.customData?.storyLink) return polished;
+      const href = polished.link ?? safeStoryHref(polished.customData?.storyLink);
+      if (!href) return polished;
       changed = true;
-      const customData = { ...element.customData };
+      const customData = { ...polished.customData };
       delete customData.storyLink;
-      return { ...element, link: href, customData };
+      return { ...polished, link: href, customData };
     }
     if (!element.link) return element;
     changed = true;
