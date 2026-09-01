@@ -8,11 +8,20 @@ import {
   pushPublicScene,
   pushSupabaseWorkspace,
   refreshSupabaseSession,
+  shouldPullSupabaseWorkspace,
   signInSupabase,
   signUpSupabase,
   SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
 } from "../src/supabase-sync.js";
+
+test("pulls cloud data the first time an account syncs on this device", () => {
+  const local = { updatedAt: 200 };
+  const cloud = { updatedAt: 100, userId: "user" };
+  assert.equal(shouldPullSupabaseWorkspace(local, cloud, null), true);
+  assert.equal(shouldPullSupabaseWorkspace(local, cloud, "user"), false);
+  assert.equal(shouldPullSupabaseWorkspace(local, { ...cloud, updatedAt: 300 }, "user"), true);
+});
 
 const SUPABASE_SETUP_SQL = await readFile(
   new URL("../supabase/setup.sql", import.meta.url),

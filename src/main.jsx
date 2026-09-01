@@ -49,9 +49,11 @@ import {
   pushSupabaseWorkspace,
   readSupabaseSession,
   refreshSupabaseSession,
+  shouldPullSupabaseWorkspace,
   signInSupabase,
   signUpSupabase,
   SUPABASE_SESSION_STORAGE_KEY,
+  SUPABASE_SYNC_OWNER_STORAGE_KEY,
   SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
   writeSupabaseSession,
@@ -2204,13 +2206,18 @@ function App() {
       if (cloud) {
         const snapshot = parseWorkspaceSnapshot(cloud);
         if (!snapshot) throw new Error("云端作品数据格式无效。");
-        if (snapshot.updatedAt > local.updatedAt) await applyCloudWorkspace(snapshot);
-        else if (snapshot.updatedAt < local.updatedAt) {
+        if (shouldPullSupabaseWorkspace(local, {
+          ...snapshot,
+          userId: auth.user.id,
+        }, localStorage.getItem(SUPABASE_SYNC_OWNER_STORAGE_KEY))) {
+          await applyCloudWorkspace(snapshot);
+        } else if (snapshot.updatedAt < local.updatedAt) {
           await pushSupabaseWorkspace(config, auth, local);
         }
       } else {
         await pushSupabaseWorkspace(config, auth, local);
       }
+      localStorage.setItem(SUPABASE_SYNC_OWNER_STORAGE_KEY, auth.user.id);
       supabaseReady.current = true;
       setSupabaseState("connected");
     } catch (error) {
@@ -2253,6 +2260,7 @@ function App() {
       if (!writeSupabaseSession(localStorage, auth)) {
         throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
+      localStorage.setItem(SUPABASE_SYNC_OWNER_STORAGE_KEY, auth.user.id);
       supabaseSessionRef.current = auth;
       supabaseReady.current = true;
       setSupabaseSession(auth);
@@ -2736,6 +2744,7 @@ function App() {
         appState: { showHyperlinkPopup: false },
       }));
     }
+    if (supabaseSessionRef.current && supabaseReady.current) setSupabaseState("syncing");
     persistScene(latestScene.current);
   }, [excalidrawAPI, highlighterActive, persistScene]);
 
@@ -3310,10 +3319,19 @@ function App() {
       role="group"
       aria-label={preview ? "讲解操作" : "画板操作"}
     >
-      {!preview && saveError && (
-        <span className="save-state save-state--error" role="alert">
+      {!preview && (saveError || supabaseSession) && (
+        <span
+          className={`save-state${saveError || supabaseState === "error" ? " save-state--error" : ""}`}
+          role={saveError || supabaseState === "error" ? "alert" : "status"}
+        >
           <span className="save-state__dot" aria-hidden="true" />
-          <span className="save-state__label">保存失败</span>
+          <span className="save-state__label">
+            {saveError
+              ? "本地保存失败"
+              : supabaseState === "syncing"
+                ? "正在保存到云端…"
+                : supabaseState === "error" ? "云端保存失败" : "已保存到云端"}
+          </span>
         </span>
       )}
       {!preview && (
@@ -3530,7 +3548,7 @@ function App() {
               onSelect={() => setSupabaseOpen(true)}
             >
               {supabaseConfig && supabaseSession
-                ? `云同步 · ${supabaseState === "error" ? "失败" : "已连接"}`
+                ? `云同步 · ${supabaseState === "syncing" ? "保存中" : supabaseState === "error" ? "失败" : "已保存"}`
                 : "云同步"}
             </MainMenu.Item>
             <MainMenu.Item
