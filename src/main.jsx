@@ -2664,16 +2664,6 @@ function App() {
   }, [excalidrawAPI]);
 
   const save = useCallback((elements, appState, files) => {
-    if (
-      appState.showHyperlinkPopup === "info" &&
-      elements.some((element) =>
-        appState.selectedElementIds[element.id] && ["embeddable", "iframe"].includes(element.type),
-      )
-    ) {
-      requestAnimationFrame(() => excalidrawAPI?.updateScene({
-        appState: { showHyperlinkPopup: false },
-      }));
-    }
     if (missingArrowhead(appState)) {
       excalidrawAPI?.updateScene({ appState: { currentItemEndArrowhead: "arrow" } });
     }
