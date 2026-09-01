@@ -2744,7 +2744,6 @@ function App() {
         appState: { showHyperlinkPopup: false },
       }));
     }
-    if (supabaseSessionRef.current && supabaseReady.current) setSupabaseState("syncing");
     persistScene(latestScene.current);
   }, [excalidrawAPI, highlighterActive, persistScene]);
 
