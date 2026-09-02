@@ -43,6 +43,7 @@ import {
   writeScene,
   writeWorkspaceSnapshot,
   writeWorks,
+  WORKSPACE_UPDATED_STORAGE_KEY,
 } from "./storage.js";
 import {
   pullPublicScene,
@@ -2096,7 +2097,9 @@ function App() {
   const supabaseSyncId = useRef(0);
   const supabaseReady = useRef(false);
   const cloudUpdatedAt = useRef(null);
-  const adoptCloudOnFirstSync = useRef(!savedLocalScene);
+  const adoptCloudOnFirstSync = useRef(
+    !savedLocalScene && workspace.works.length === 1 && workspace.works[0].name === "未命名作品",
+  );
   const supabaseSessionRef = useRef(supabaseSession);
   const saveRevision = useRef(0);
   const activeWorkId = useRef(workspace.activeWorkId);
@@ -2354,7 +2357,9 @@ function App() {
       try {
         const auth = await ensureSupabaseSession(supabaseConfig);
         const updatedAt = await pullSupabaseWorkspaceUpdatedAt(supabaseConfig, auth);
-        if (Date.parse(updatedAt) !== cloudUpdatedAt.current) {
+        const cloudVersion = Date.parse(updatedAt);
+        const localVersion = Number(localStorage.getItem(WORKSPACE_UPDATED_STORAGE_KEY));
+        if (cloudVersion !== cloudUpdatedAt.current || localVersion !== cloudUpdatedAt.current) {
           await queueSupabaseSync(supabaseConfig, auth);
         }
       } catch {

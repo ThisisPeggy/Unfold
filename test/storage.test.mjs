@@ -219,6 +219,31 @@ test("resolves equal-time edits identically in either merge direction", () => {
   );
 });
 
+test("keeps all three local works when the cloud still has only one", () => {
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+  ];
+  const works = ids.map((id, index) => ({ id, name: `Work ${index + 1}`, updatedAt: index + 1 }));
+  const scenes = Object.fromEntries(ids.map((id) => [
+    id,
+    { elements: [{ id }], appState: {}, files: {} },
+  ]));
+  const local = {
+    version: 1, updatedAt: 3, activeWorkId: ids[2], works, scenes, deletedWorks: {},
+  };
+  const cloud = {
+    version: 1,
+    updatedAt: 1,
+    activeWorkId: ids[0],
+    works: [works[0]],
+    scenes: { [ids[0]]: scenes[ids[0]] },
+    deletedWorks: {},
+  };
+  assert.equal(mergeWorkspaceSnapshots(local, cloud).works.length, 3);
+});
+
 test("restores an arrowhead only for the arrow tool", () => {
   assert.equal(missingArrowhead({ activeTool: { type: "arrow" }, currentItemEndArrowhead: null }), true);
   assert.equal(missingArrowhead({ activeTool: { type: "line" }, currentItemEndArrowhead: null }), false);
