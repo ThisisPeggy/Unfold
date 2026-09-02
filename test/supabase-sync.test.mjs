@@ -131,6 +131,43 @@ test("stores images in a private bucket instead of workspace JSON", async () => 
   assert.equal(restored.scenes[workId].files.image.dataURL, "data:text/plain;base64,aGk=");
 });
 
+test("syncs the work library even when private image storage is unavailable", async () => {
+  const workId = "22222222-2222-4222-8222-222222222222";
+  const payload = {
+    version: 1,
+    updatedAt: 123,
+    activeWorkId: workId,
+    works: [{ id: workId, name: "Still synced", updatedAt: 123 }],
+    scenes: {
+      [workId]: {
+        elements: [{ id: "fallback-image" }],
+        appState: {},
+        files: { fallbackImage: { mimeType: "text/plain", dataURL: "data:text/plain;base64,aGk=" } },
+      },
+    },
+    deletedWorks: {},
+  };
+  let cloudPayload;
+  const uploadFetcher = async (url, options = {}) => {
+    if (url.startsWith("data:")) return fetch(url);
+    if (url.includes("/storage/v1/object/")) return new Response(null, { status: 403 });
+    if (!options.method) return new Response("[]", { status: 200 });
+    cloudPayload = JSON.parse(options.body).payload;
+    return new Response("[{}]", { status: 201 });
+  };
+  await syncSupabaseWorkspace(config, session, payload, { fetcher: uploadFetcher });
+  assert.equal(cloudPayload.works.length, 1);
+  assert.equal(cloudPayload.scenes[workId].files.fallbackImage.dataURL, "data:text/plain;base64,aGk=");
+
+  cloudPayload.scenes[workId].files.fallbackImage = { mimeType: "text/plain", storagePath: "missing" };
+  const restored = await pullSupabaseWorkspace(config, session, async (url) =>
+    url.includes("/rest/v1/")
+      ? new Response(JSON.stringify([{ payload: cloudPayload, updated_at: new Date().toISOString() }]), { status: 200 })
+      : new Response(null, { status: 404 }));
+  assert.equal(restored.works[0].name, "Still synced");
+  assert.equal(restored.scenes[workId].files.fallbackImage.storagePath, "missing");
+});
+
 test("signs in, signs up, and refreshes through Supabase Auth", async () => {
   const calls = [];
   const fetcher = async (url, options) => {

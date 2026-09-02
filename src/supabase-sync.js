@@ -328,25 +328,32 @@ async function uploadWorkspaceImages(config, session, payload, fetcher) {
     const files = {};
     for (const [fileId, file] of Object.entries(scene.files ?? {})) {
       const storagePath = `${session.user.id}/${fileId}`;
+      let uploaded = uploadedImages.has(storagePath);
       if (file.dataURL && !uploadedImages.has(storagePath)) {
-        const blob = await (await fetcher(file.dataURL)).blob();
-        const response = await fetcher(
-          `${config.url}/storage/v1/object/${IMAGE_BUCKET}/${storagePath}`,
-          {
-            method: "POST",
-            headers: {
-              ...headers(config, session),
-              "Content-Type": blob.type || file.mimeType || "application/octet-stream",
-              "x-upsert": "true",
+        try {
+          const blob = await (await fetcher(file.dataURL)).blob();
+          const response = await fetcher(
+            `${config.url}/storage/v1/object/${IMAGE_BUCKET}/${storagePath}`,
+            {
+              method: "POST",
+              headers: {
+                ...headers(config, session),
+                "Content-Type": blob.type || file.mimeType || "application/octet-stream",
+                "x-upsert": "true",
+              },
+              body: blob,
             },
-            body: blob,
-          },
-        );
-        if (!response.ok) throw new Error(`图片上传失败（${response.status}）`);
-        uploadedImages.add(storagePath);
+          );
+          uploaded = response.ok;
+          if (uploaded) uploadedImages.add(storagePath);
+        } catch {}
       }
-      const { dataURL: _dataURL, ...metadata } = file;
-      files[fileId] = { ...metadata, storagePath };
+      if (uploaded || !file.dataURL) {
+        const { dataURL: _dataURL, ...metadata } = file;
+        files[fileId] = { ...metadata, storagePath };
+      } else {
+        files[fileId] = file;
+      }
     }
     scenes[workId] = { ...scene, files };
   }
@@ -365,8 +372,11 @@ async function downloadWorkspaceImages(config, session, payload, fetcher) {
       const response = await fetcher(
         `${config.url}/storage/v1/object/authenticated/${IMAGE_BUCKET}/${file.storagePath}`,
         { headers: headers(config, session) },
-      );
-      if (!response.ok) throw new Error(`图片下载失败（${response.status}）`);
+      ).catch(() => null);
+      if (!response?.ok) {
+        files[fileId] = file;
+        continue;
+      }
       const blob = await response.blob();
       const bytes = new Uint8Array(await blob.arrayBuffer());
       let binary = "";

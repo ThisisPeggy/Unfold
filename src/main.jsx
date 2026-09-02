@@ -357,6 +357,15 @@ function PathIcon() {
   );
 }
 
+function AssistantIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 3c.6 4.2 2.8 6.4 7 7-4.2.6-6.4 2.8-7 7-.6-4.2-2.8-6.4-7-7 4.2-.6 6.4-2.8 7-7Z" />
+      <path d="M19 3v4M17 5h4" />
+    </svg>
+  );
+}
+
 function SendIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -3410,23 +3419,6 @@ function App() {
       )}
       {!preview && (
         <button
-          ref={assistantButtonRef}
-          className="control-button control-button--hermes"
-          type="button"
-          data-connected={hermesConnected}
-          aria-label={`Hermes：${hermesConnected ? "已连接" : "未连接，点击连接"}`}
-          aria-pressed={assistantOpen}
-          aria-expanded={assistantOpen}
-          aria-controls="hermes-assistant-panel"
-          title={`Hermes：${hermesConnected ? "已连接" : "点击连接"}`}
-          onClick={openHermes}
-        >
-          <span className="hermes-status-dot" aria-hidden="true" />
-          <span className="control-button__label control-button__label--keep">助手</span>
-        </button>
-      )}
-      {!preview && (
-        <button
           ref={pathButtonRef}
           className="control-button"
           type="button"
@@ -3485,6 +3477,22 @@ function App() {
         />
       )}
       {!isShared && preview && renderCanvasControls()}
+
+      {!preview && (
+        <button
+          ref={assistantButtonRef}
+          className="hermes-launcher"
+          type="button"
+          aria-label={`Hermes：${hermesConnected ? "已连接" : "未连接，点击连接"}`}
+          aria-pressed={assistantOpen}
+          aria-expanded={assistantOpen}
+          aria-controls="hermes-assistant-panel"
+          title={`Hermes：${hermesConnected ? "已连接" : "点击连接"}`}
+          onClick={openHermes}
+        >
+          <AssistantIcon />
+        </button>
+      )}
 
       {!preview && pathEditorOpen && !cameraPreviewStep && (
         <StoryPathPanel

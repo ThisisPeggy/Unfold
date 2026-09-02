@@ -191,17 +191,56 @@ body,
   stroke-width: 1.5;
 }
 
-.hermes-status-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--tale-muted);
+.hermes-launcher {
+  appearance: none;
+  position: fixed;
+  z-index: 12;
+  right: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  color: var(--tale-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 120ms ease-out, transform 120ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.control-button--hermes[data-connected="true"] .hermes-status-dot {
-  background: #448361;
-  box-shadow: 0 0 0 3px rgb(68 131 97 / 12%);
+.hermes-launcher::before {
+  position: absolute;
+  inset: -8px;
+  content: "";
+}
+
+.hermes-launcher svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.hermes-launcher:hover {
+  color: var(--tale-ink);
+}
+
+.hermes-launcher:active {
+  transform: scale(0.96);
+}
+
+.hermes-launcher:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--tale-accent);
+  outline-offset: 4px;
+}
+
+.hermes-launcher[aria-pressed="true"] {
+  color: var(--tale-accent);
 }
 
 .story-path-editor {
@@ -1946,30 +1985,25 @@ body,
 }
 
 .excalidraw .help-icon {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
+  display: none;
 }
 
 .excalidraw [data-testid="help-menu-item"] .dropdown-menu-item__shortcut {
   display: none;
 }
 
-.excalidraw .main-menu-trigger,
-.excalidraw .help-icon {
+.excalidraw .main-menu-trigger {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
   transition: background-color 120ms ease-out;
 }
 
-.excalidraw .main-menu-trigger:hover,
-.excalidraw .help-icon:hover {
+.excalidraw .main-menu-trigger:hover {
   background: var(--tale-accent-soft);
 }
 
-.excalidraw .main-menu-trigger:active,
-.excalidraw .help-icon:active {
+.excalidraw .main-menu-trigger:active {
   background: #dcecf8;
   box-shadow: none;
 }
@@ -3074,7 +3108,7 @@ body,
   }
 
   .canvas-controls--embedded .save-state__label,
-  .canvas-controls--embedded .control-button:not(.control-button--preview) .control-button__label:not(.control-button__label--keep) {
+  .canvas-controls--embedded .control-button:not(.control-button--preview) .control-button__label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -3083,7 +3117,7 @@ body,
     white-space: nowrap;
   }
 
-  .canvas-controls--embedded .control-button:not(.control-button--hermes, .control-button--preview) {
+  .canvas-controls--embedded .control-button:not(.control-button--preview) {
     width: 32px;
     justify-content: center;
     padding: 0;
@@ -3118,8 +3152,7 @@ body,
     right: 12px;
   }
 
-  .excalidraw .canvas-controls--embedded,
-  .excalidraw .help-icon {
+  .excalidraw .canvas-controls--embedded {
     right: 12px;
   }
 
@@ -3127,8 +3160,9 @@ body,
     top: 12px;
   }
 
-  .excalidraw .help-icon {
-    bottom: 12px;
+  .hermes-launcher {
+    right: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom));
   }
 
   .story-path-editor {
@@ -3187,6 +3221,7 @@ body,
 
 @media (prefers-reduced-motion: reduce) {
   .control-button,
+  .hermes-launcher,
   .hermes-assistant-panel,
   .story-path-editor,
   .path-icon-button,
