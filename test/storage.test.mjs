@@ -167,27 +167,56 @@ test("round-trips a complete cloud workspace snapshot", async () => {
   assert.equal(storage.getItem(ACTIVE_WORK_STORAGE_KEY), id);
 });
 
-test("merges cloud works without replacing the current local canvas", () => {
+test("merges each work by its latest edit and propagates deletions", () => {
   const current = { id: "11111111-1111-4111-8111-111111111111", name: "Current", updatedAt: 1 };
   const other = { id: "22222222-2222-4222-8222-222222222222", name: "Other", updatedAt: 1 };
   const cloudOnly = { id: "33333333-3333-4333-8333-333333333333", name: "Cloud", updatedAt: 2 };
   const localScene = { elements: [{ id: "local" }], appState: {}, files: {} };
   const cloudScene = { elements: [{ id: "cloud" }], appState: {}, files: {} };
   const merged = mergeWorkspaceSnapshots(
-    { version: 1, updatedAt: 1, activeWorkId: current.id, works: [current, other], scenes: {} },
+    {
+      version: 1,
+      updatedAt: 3,
+      activeWorkId: current.id,
+      works: [current, other],
+      scenes: { [current.id]: localScene, [other.id]: localScene },
+      deletedWorks: { [other.id]: 3 },
+    },
     {
       version: 1,
       updatedAt: 2,
       activeWorkId: other.id,
       works: [{ ...current, updatedAt: 2 }, { ...other, updatedAt: 2 }, cloudOnly],
       scenes: { [current.id]: cloudScene, [other.id]: cloudScene, [cloudOnly.id]: cloudScene },
+      deletedWorks: {},
     },
-    localScene,
   );
   assert.equal(merged.activeWorkId, current.id);
-  assert.deepEqual(merged.works.map(({ id }) => id), [current.id, other.id, cloudOnly.id]);
-  assert.equal(merged.scenes[current.id], localScene);
-  assert.equal(merged.scenes[other.id], cloudScene);
+  assert.deepEqual(merged.works.map(({ id }) => id), [current.id, cloudOnly.id]);
+  assert.equal(merged.scenes[current.id], cloudScene);
+  assert.equal(merged.scenes[cloudOnly.id], cloudScene);
+  assert.equal(merged.deletedWorks[other.id], 3);
+});
+
+test("resolves equal-time edits identically in either merge direction", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const left = {
+    version: 1,
+    updatedAt: 5,
+    activeWorkId: id,
+    works: [{ id, name: "A", updatedAt: 5 }],
+    scenes: { [id]: { elements: [{ id: "a" }], appState: {}, files: {} } },
+    deletedWorks: {},
+  };
+  const right = {
+    ...left,
+    works: [{ id, name: "B", updatedAt: 5 }],
+    scenes: { [id]: { elements: [{ id: "b" }], appState: {}, files: {} } },
+  };
+  assert.deepEqual(
+    mergeWorkspaceSnapshots(left, right),
+    mergeWorkspaceSnapshots(right, left),
+  );
 });
 
 test("restores an arrowhead only for the arrow tool", () => {

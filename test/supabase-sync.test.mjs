@@ -5,11 +5,12 @@ import {
   normalizeSupabaseConfig,
   pullPublicScene,
   pullSupabaseWorkspace,
+  pullSupabaseWorkspaceUpdatedAt,
   pushPublicScene,
-  pushSupabaseWorkspace,
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
+  syncSupabaseWorkspace,
   SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
 } from "../src/supabase-sync.js";
@@ -91,36 +92,43 @@ test("publishes a scene for anonymous one-time reads", async () => {
 });
 
 test("stores images in a private bucket instead of workspace JSON", async () => {
+  const workId = "11111111-1111-4111-8111-111111111111";
   const payload = {
     version: 1,
     updatedAt: 123,
+    activeWorkId: workId,
+    works: [{ id: workId, name: "Image", updatedAt: 123 }],
     scenes: {
-      work: {
+      [workId]: {
+        elements: [],
+        appState: {},
         files: {
           image: { mimeType: "text/plain", dataURL: "data:text/plain;base64,aGk=" },
         },
       },
     },
+    deletedWorks: {},
   };
   let cloudPayload;
-  const uploadFetcher = async (url, options) => {
+  const uploadFetcher = async (url, options = {}) => {
     if (url.startsWith("data:")) return fetch(url);
     if (url.includes("/storage/v1/object/")) return new Response(null, { status: 200 });
+    if (!options.method) return new Response("[]", { status: 200 });
     cloudPayload = JSON.parse(options.body).payload;
-    return new Response(null, { status: 201 });
+    return new Response("[{}]", { status: 201 });
   };
-  await pushSupabaseWorkspace(config, session, payload, uploadFetcher);
-  assert.equal(cloudPayload.scenes.work.files.image.dataURL, undefined);
+  await syncSupabaseWorkspace(config, session, payload, { fetcher: uploadFetcher });
+  assert.equal(cloudPayload.scenes[workId].files.image.dataURL, undefined);
   assert.equal(
-    cloudPayload.scenes.work.files.image.storagePath,
+    cloudPayload.scenes[workId].files.image.storagePath,
     `${session.user.id}/image`,
   );
 
   const downloadFetcher = async (url) => url.includes("/rest/v1/")
-    ? new Response(JSON.stringify([{ payload: cloudPayload }]), { status: 200 })
+    ? new Response(JSON.stringify([{ payload: cloudPayload, updated_at: new Date().toISOString() }]), { status: 200 })
     : new Response("hi", { status: 200, headers: { "Content-Type": "text/plain" } });
   const restored = await pullSupabaseWorkspace(config, session, downloadFetcher);
-  assert.equal(restored.scenes.work.files.image.dataURL, "data:text/plain;base64,aGk=");
+  assert.equal(restored.scenes[workId].files.image.dataURL, "data:text/plain;base64,aGk=");
 });
 
 test("signs in, signs up, and refreshes through Supabase Auth", async () => {
@@ -140,22 +148,17 @@ test("signs in, signs up, and refreshes through Supabase Auth", async () => {
   assert.match(calls[2].url, /token\?grant_type=refresh_token/);
 });
 
-test("pulls and upserts the signed-in user's workspace", async () => {
+test("pulls the signed-in user's workspace", async () => {
   const payload = { version: 1, updatedAt: 123, scenes: {} };
-  const calls = [];
+  let call;
   const fetcher = async (url, options) => {
-    calls.push({ url, options });
-    return calls.length === 1
-      ? new Response(JSON.stringify([{ payload }]), { status: 200 })
-      : new Response(null, { status: 201 });
+    call = { url, options };
+    return new Response(JSON.stringify([{ payload }]), { status: 200 });
   };
   assert.deepEqual(await pullSupabaseWorkspace(config, session, fetcher), payload);
-  await pushSupabaseWorkspace(config, session, payload, fetcher);
-  assert.match(calls[0].url, /select=payload/);
-  assert.equal(calls[0].options.headers.apikey, config.key);
-  assert.equal(calls[0].options.headers.Authorization, "Bearer access");
-  assert.equal(calls[1].options.method, "POST");
-  assert.equal(JSON.parse(calls[1].options.body).user_id, session.user.id);
+  assert.match(call.url, /select=payload/);
+  assert.equal(call.options.headers.apikey, config.key);
+  assert.equal(call.options.headers.Authorization, "Bearer access");
 });
 
 test("rejects workspaces above the cloud work limit before uploading", async () => {
@@ -165,13 +168,104 @@ test("rejects workspaces above the cloud work limit before uploading", async () 
     works: Array.from({ length: SUPABASE_WORK_LIMIT + 1 }, (_, index) => ({ id: `${index}` })),
     scenes: {},
   };
-  let requested = false;
+  let uploaded = false;
   await assert.rejects(
-    pushSupabaseWorkspace(config, session, payload, async () => {
-      requested = true;
-      return new Response(null, { status: 201 });
-    }),
+    syncSupabaseWorkspace(config, session, payload, { fetcher: async (_url, options = {}) => {
+      if (!options.method) return new Response("[]", { status: 200 });
+      uploaded = true;
+      return new Response("[{}]", { status: 201 });
+    } }),
     /最多保存 10 个作品/,
   );
-  assert.equal(requested, false);
+  assert.equal(uploaded, false);
+});
+
+test("retries a concurrent browser write and preserves both browsers' latest works", async () => {
+  const firstId = "11111111-1111-4111-8111-111111111111";
+  const secondId = "22222222-2222-4222-8222-222222222222";
+  const scene = (id) => ({ elements: [{ id }], appState: {}, files: {} });
+  const snapshot = (works, scenes, updatedAt) => ({
+    version: 1,
+    updatedAt,
+    activeWorkId: works[0].id,
+    works,
+    scenes,
+    deletedWorks: {},
+  });
+  const local = snapshot(
+    [
+      { id: firstId, name: "Local", updatedAt: 2 },
+      { id: secondId, name: "Local only", updatedAt: 2 },
+    ],
+    { [firstId]: scene("local"), [secondId]: scene("local-only") },
+    2,
+  );
+  let record = {
+    payload: snapshot(
+      [{ id: firstId, name: "Old", updatedAt: 1 }],
+      { [firstId]: scene("old") },
+      1,
+    ),
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+  let writes = 0;
+  const fetcher = async (_url, options = {}) => {
+    if (options.method !== "PATCH") return new Response(JSON.stringify([record]), { status: 200 });
+    writes += 1;
+    if (writes === 1) {
+      record = {
+        payload: snapshot(
+          [{ id: firstId, name: "Remote", updatedAt: 3 }],
+          { [firstId]: scene("remote") },
+          3,
+        ),
+        updated_at: "2026-01-01T00:00:01.000Z",
+      };
+      return new Response("[]", { status: 200 });
+    }
+    const body = JSON.parse(options.body);
+    record = { payload: body.payload, updated_at: body.updated_at };
+    return new Response(JSON.stringify([record]), { status: 200 });
+  };
+
+  const result = await syncSupabaseWorkspace(config, session, local, { fetcher });
+  assert.equal(writes, 2);
+  assert.deepEqual(result.workspace.works.map(({ name }) => name), ["Remote", "Local only"]);
+  assert.equal(result.workspace.scenes[firstId].elements[0].id, "remote");
+  assert.equal(await pullSupabaseWorkspaceUpdatedAt(config, session, fetcher), result.cloudUpdatedAt);
+});
+
+test("keeps the active work device-local instead of making browsers overwrite each other", async () => {
+  const firstId = "11111111-1111-4111-8111-111111111111";
+  const secondId = "22222222-2222-4222-8222-222222222222";
+  const works = [
+    { id: firstId, name: "First", updatedAt: 1 },
+    { id: secondId, name: "Second", updatedAt: 1 },
+  ];
+  const scenes = Object.fromEntries(works.map(({ id }) => [
+    id,
+    { elements: [], appState: {}, files: {} },
+  ]));
+  const cloud = {
+    version: 1,
+    updatedAt: 1,
+    activeWorkId: firstId,
+    works,
+    scenes,
+    deletedWorks: {},
+  };
+  let writes = 0;
+  const result = await syncSupabaseWorkspace(
+    config,
+    session,
+    { ...cloud, activeWorkId: secondId },
+    { fetcher: async (_url, options = {}) => {
+      if (options.method) writes += 1;
+      return new Response(JSON.stringify([{ payload: cloud, updated_at: "2026-01-01T00:00:00Z" }]), {
+        status: 200,
+      });
+    } },
+  );
+  assert.equal(writes, 0);
+  assert.equal(result.workspace.activeWorkId, firstId);
 });

@@ -3,6 +3,7 @@ export const PUBLICATION_STORAGE_KEY = "story-canvas.publication.v1";
 export const WORKS_STORAGE_KEY = "story-canvas.works.v1";
 export const ACTIVE_WORK_STORAGE_KEY = "story-canvas.active-work.v1";
 export const WORKSPACE_UPDATED_STORAGE_KEY = "story-canvas.workspace-updated.v1";
+export const DELETED_WORKS_STORAGE_KEY = "story-canvas.deleted-works.v1";
 
 export const sceneKeyForWork = (id) => `${SCENE_STORAGE_KEY}:${id}`;
 export const publicationKeyForWork = (id) => `${PUBLICATION_STORAGE_KEY}:${id}`;
@@ -197,7 +198,28 @@ export function writeWorks(storage, works, updatedAt = Date.now()) {
   }
 }
 
-export function createWorkspaceSnapshot(storage, works, activeWorkId) {
+export function readDeletedWorks(storage) {
+  try {
+    const deletedWorks = JSON.parse(storage.getItem(DELETED_WORKS_STORAGE_KEY));
+    if (!deletedWorks || typeof deletedWorks !== "object" || Array.isArray(deletedWorks)) return {};
+    return Object.fromEntries(Object.entries(deletedWorks).filter(
+      ([id, deletedAt]) => isWorkId(id) && Number.isFinite(deletedAt),
+    ));
+  } catch {
+    return {};
+  }
+}
+
+export function writeDeletedWorks(storage, deletedWorks) {
+  try {
+    storage.setItem(DELETED_WORKS_STORAGE_KEY, JSON.stringify(deletedWorks));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function createWorkspaceSnapshot(storage, works, activeWorkId, activeScene) {
   const saved = storage.getItem(WORKSPACE_UPDATED_STORAGE_KEY);
   const savedUpdatedAt = saved == null ? NaN : Number(saved);
   return {
@@ -209,31 +231,69 @@ export function createWorkspaceSnapshot(storage, works, activeWorkId) {
     works,
     scenes: Object.fromEntries(works.map(({ id }) => [
       id,
-      readScene(storage, sceneKeyForWork(id)),
+      id === activeWorkId && activeScene ? activeScene : readScene(storage, sceneKeyForWork(id)),
     ])),
+    deletedWorks: readDeletedWorks(storage),
   };
 }
 
-export function mergeWorkspaceSnapshots(local, cloud, activeScene) {
-  const localIds = new Set(local.works.map(({ id }) => id));
+export function mergeWorkspaceSnapshots(local, cloud) {
+  const localWorks = new Map(local.works.map((work) => [work.id, work]));
   const cloudWorks = new Map(cloud.works.map((work) => [work.id, work]));
-  const works = local.works.map((localWork) => {
-    const cloudWork = cloudWorks.get(localWork.id);
-    return localWork.id === local.activeWorkId || !cloudWork || localWork.updatedAt >= cloudWork.updatedAt
-      ? localWork
-      : cloudWork;
-  }).concat(cloud.works.filter(({ id }) => !localIds.has(id)));
+  const deletedWorks = {};
+  for (const id of [...new Set([
+    ...Object.keys(local.deletedWorks ?? {}),
+    ...Object.keys(cloud.deletedWorks ?? {}),
+  ])].sort()) {
+    deletedWorks[id] = Math.max(local.deletedWorks?.[id] ?? 0, cloud.deletedWorks?.[id] ?? 0);
+  }
+
+  const works = [];
+  const scenes = {};
+  const candidates = [];
+  for (const id of new Set([...localWorks.keys(), ...cloudWorks.keys()])) {
+    const localWork = localWorks.get(id);
+    const cloudWork = cloudWorks.get(id);
+    let source;
+    if (!localWork) source = cloud;
+    else if (!cloudWork) source = local;
+    else if (localWork.updatedAt !== cloudWork.updatedAt) {
+      source = localWork.updatedAt > cloudWork.updatedAt ? local : cloud;
+    } else {
+      const localValue = JSON.stringify([localWork, local.scenes[id]]);
+      const cloudValue = JSON.stringify([cloudWork, cloud.scenes[id]]);
+      source = localValue >= cloudValue ? local : cloud;
+    }
+    const work = source === local ? localWork : cloudWork;
+    candidates.push({ work, scene: source.scenes[id] });
+    if ((deletedWorks[id] ?? 0) >= work.updatedAt) continue;
+    works.push(work);
+    scenes[id] = source.scenes[id];
+  }
+
+  if (!works.length && candidates.length) {
+    const { work, scene } = candidates.sort((left, right) =>
+      right.work.updatedAt - left.work.updatedAt || right.work.id.localeCompare(left.work.id))[0];
+    delete deletedWorks[work.id];
+    works.push(work);
+    scenes[work.id] = scene;
+  }
+
+  const orderedBy = local.updatedAt !== cloud.updatedAt
+    ? (local.updatedAt > cloud.updatedAt ? local.works : cloud.works)
+    : (JSON.stringify(local.works) >= JSON.stringify(cloud.works) ? local.works : cloud.works);
+  const order = new Map(orderedBy.map(({ id }, index) => [id, index]));
+  works.sort((left, right) => (order.get(left.id) ?? Infinity) - (order.get(right.id) ?? Infinity) ||
+    left.updatedAt - right.updatedAt || left.id.localeCompare(right.id));
+  const activeWorkId = [local.activeWorkId, cloud.activeWorkId, works[0]?.id]
+    .find((id) => works.some((work) => work.id === id));
   return {
     version: 1,
     updatedAt: Math.max(local.updatedAt, cloud.updatedAt),
-    activeWorkId: local.activeWorkId,
+    activeWorkId,
     works,
-    scenes: Object.fromEntries(works.map((work) => [
-      work.id,
-      work.id === local.activeWorkId
-        ? activeScene
-        : work === cloudWorks.get(work.id) ? cloud.scenes[work.id] : local.scenes[work.id],
-    ])),
+    scenes: Object.fromEntries(works.map(({ id }) => [id, scenes[id]])),
+    deletedWorks,
   };
 }
 
@@ -250,7 +310,10 @@ export function parseWorkspaceSnapshot(value) {
       !scene.appState || typeof scene.appState !== "object" ||
       !scene.files || typeof scene.files !== "object";
   })) return null;
-  return { ...value, works };
+  const deletedWorks = Object.fromEntries(Object.entries(value.deletedWorks ?? {}).filter(
+    ([id, deletedAt]) => isWorkId(id) && Number.isFinite(deletedAt),
+  ));
+  return { ...value, works, deletedWorks };
 }
 
 export async function writeWorkspaceSnapshot(storage, value) {
@@ -260,6 +323,7 @@ export async function writeWorkspaceSnapshot(storage, value) {
     if (!await writeScene(storage, sceneKeyForWork(work.id), snapshot.scenes[work.id])) return false;
   }
   if (!writeWorks(storage, snapshot.works, snapshot.updatedAt)) return false;
+  if (!writeDeletedWorks(storage, snapshot.deletedWorks)) return false;
   try {
     storage.setItem(ACTIVE_WORK_STORAGE_KEY, snapshot.activeWorkId);
     return true;

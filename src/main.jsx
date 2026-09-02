@@ -27,31 +27,32 @@ import {
   decodeScene,
   initializeWorkStorage,
   initializeSceneStorage,
-  mergeWorkspaceSnapshots,
   parseUnfoldScene,
   parseWorkspaceSnapshot,
   pruneStaleWorkStorage,
   publicationKeyForWork,
   removeScene,
   readPublication,
+  readDeletedWorks,
   readScene,
   sceneIdFromPath,
   sceneKeyForWork,
   serializeUnfoldScene,
   writePublication,
+  writeDeletedWorks,
   writeScene,
   writeWorkspaceSnapshot,
   writeWorks,
 } from "./storage.js";
 import {
   pullPublicScene,
-  pullSupabaseWorkspace,
+  pullSupabaseWorkspaceUpdatedAt,
   pushPublicScene,
-  pushSupabaseWorkspace,
   readSupabaseSession,
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
+  syncSupabaseWorkspace,
   SUPABASE_SESSION_STORAGE_KEY,
   SUPABASE_WORK_LIMIT,
   supabaseConfigFromEnv,
@@ -2039,11 +2040,13 @@ function App() {
     () => initializeWorkStorage(localStorage, () => crypto.randomUUID()),
     [],
   );
-  const localScene = useMemo(
-    () => withoutNativeLinks(
-      readScene(localStorage, sceneKeyForWork(workspace.activeWorkId)) ?? starterScene(),
-    ),
+  const savedLocalScene = useMemo(
+    () => readScene(localStorage, sceneKeyForWork(workspace.activeWorkId)),
     [workspace.activeWorkId],
+  );
+  const localScene = useMemo(
+    () => withoutNativeLinks(savedLocalScene ?? starterScene()),
+    [savedLocalScene],
   );
   const [works, setWorks] = useState(workspace.works);
   const [preview, setPreview] = useState(isShared);
@@ -2090,7 +2093,10 @@ function App() {
   const notionNoticeTimer = useRef();
   const supabaseTimer = useRef();
   const supabaseQueue = useRef(Promise.resolve());
+  const supabaseSyncId = useRef(0);
   const supabaseReady = useRef(false);
+  const cloudUpdatedAt = useRef(null);
+  const adoptCloudOnFirstSync = useRef(!savedLocalScene);
   const supabaseSessionRef = useRef(supabaseSession);
   const saveRevision = useRef(0);
   const activeWorkId = useRef(workspace.activeWorkId);
@@ -2128,6 +2134,7 @@ function App() {
     const revision = ++saveRevision.current;
     const workId = activeWorkId.current;
     saveTimer.current = window.setTimeout(async () => {
+      saveTimer.current = undefined;
       if (!await writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
         if (revision === saveRevision.current) setSaveError(true);
         return;
@@ -2149,10 +2156,22 @@ function App() {
       setPreview(false);
       return;
     }
+    const pendingSave = saveTimer.current != null;
     window.clearTimeout(saveTimer.current);
+    saveTimer.current = undefined;
     saveRevision.current += 1;
     if (!restoringCloud) {
       await writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current);
+      if (pendingSave) {
+        const savedWorkId = activeWorkId.current;
+        setWorks((currentWorks) => {
+          const nextWorks = currentWorks.map((work) => work.id === savedWorkId
+            ? { ...work, updatedAt: Date.now() }
+            : work);
+          writeWorks(localStorage, nextWorks);
+          return nextWorks;
+        });
+      }
     }
     localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, workId);
     activeWorkId.current = workId;
@@ -2185,14 +2204,19 @@ function App() {
     fitWorkToViewport(excalidrawAPI, latestScene.current?.elements);
   }, [excalidrawAPI, isShared]);
 
-  const applyCloudWorkspace = useCallback(async (value) => {
+  const applySyncedWorkspace = useCallback(async (value) => {
     const snapshot = parseWorkspaceSnapshot(value);
     if (!snapshot) throw new Error("云端作品数据格式无效。");
+    const activeChanged = snapshot.activeWorkId !== activeWorkId.current ||
+      JSON.stringify(snapshot.scenes[snapshot.activeWorkId]) !== JSON.stringify(latestScene.current);
     if (!await writeWorkspaceSnapshot(localStorage, snapshot)) {
       throw new Error("浏览器存储空间不足，无法下载云端作品。");
     }
-    setWorks(snapshot.works);
-    await openWork(snapshot.activeWorkId, true);
+    if (JSON.stringify(snapshot.works) !== JSON.stringify(worksRef.current)) {
+      worksRef.current = snapshot.works;
+      setWorks(snapshot.works);
+    }
+    if (activeChanged) await openWork(snapshot.activeWorkId, true);
   }, [openWork]);
 
   const ensureSupabaseSession = useCallback(async (config) => {
@@ -2208,27 +2232,54 @@ function App() {
     return refreshed;
   }, []);
 
-  const mergeSupabaseWorkspace = useCallback(async (config, auth) => {
-    const cloud = await pullSupabaseWorkspace(config, auth);
-    const cloudSnapshot = cloud && parseWorkspaceSnapshot(cloud);
-    if (cloud && !cloudSnapshot) throw new Error("云端作品数据格式无效。");
+  const syncWorkspace = useCallback(async (config, auth, adoptCloud = false, syncId) => {
+    const revision = saveRevision.current;
+    const deviceActiveWorkId = activeWorkId.current;
     const local = createWorkspaceSnapshot(
       localStorage,
       worksRef.current,
       activeWorkId.current,
+      latestScene.current,
     );
-    const merged = cloud
-      ? mergeWorkspaceSnapshots(local, cloudSnapshot, latestScene.current)
-      : { ...local, scenes: { ...local.scenes, [local.activeWorkId]: latestScene.current } };
-    if (cloud) await applyCloudWorkspace(merged);
-    await pushSupabaseWorkspace(config, auth, merged);
-  }, [applyCloudWorkspace]);
+    const result = await syncSupabaseWorkspace(config, auth, local, { adoptCloud });
+    if (syncId !== supabaseSyncId.current) return;
+    cloudUpdatedAt.current = Date.parse(result.cloudUpdatedAt);
+    adoptCloudOnFirstSync.current = false;
+    if (revision !== saveRevision.current || saveTimer.current) return;
+    const workspace = !adoptCloud && result.workspace.works.some(
+      ({ id }) => id === deviceActiveWorkId,
+    ) ? { ...result.workspace, activeWorkId: deviceActiveWorkId } : result.workspace;
+    await applySyncedWorkspace(workspace);
+  }, [applySyncedWorkspace]);
+
+  const queueSupabaseSync = useCallback((config, auth, adoptCloud = false) => {
+    const syncId = ++supabaseSyncId.current;
+    setSupabaseState("syncing");
+    const task = supabaseQueue.current
+      .catch(() => {})
+      .then(async () => syncWorkspace(
+        config,
+        auth ?? await ensureSupabaseSession(config),
+        adoptCloud,
+        syncId,
+      ));
+    supabaseQueue.current = task;
+    task.then(
+      () => {
+        if (syncId === supabaseSyncId.current) setSupabaseState("connected");
+      },
+      () => {
+        if (syncId === supabaseSyncId.current) setSupabaseState("error");
+      },
+    );
+    return task;
+  }, [ensureSupabaseSession, syncWorkspace]);
 
   const syncExistingSupabase = useCallback(async (config) => {
     setSupabaseState("syncing");
     try {
       const auth = await ensureSupabaseSession(config);
-      await mergeSupabaseWorkspace(config, auth);
+      await queueSupabaseSync(config, auth, adoptCloudOnFirstSync.current);
       supabaseReady.current = true;
       setSupabaseState("connected");
     } catch (error) {
@@ -2236,7 +2287,7 @@ function App() {
       setSupabaseState("error");
       throw error;
     }
-  }, [ensureSupabaseSession, mergeSupabaseWorkspace]);
+  }, [ensureSupabaseSession, queueSupabaseSync]);
 
   const connectSupabase = useCallback(async (settings) => {
     const config = supabaseConfig;
@@ -2251,7 +2302,7 @@ function App() {
         return { pending: true };
       }
       const auth = authResult.session;
-      await mergeSupabaseWorkspace(config, auth);
+      await queueSupabaseSync(config, auth, adoptCloudOnFirstSync.current);
       if (!writeSupabaseSession(localStorage, auth)) {
         throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
@@ -2265,12 +2316,14 @@ function App() {
       setSupabaseState("error");
       throw error;
     }
-  }, [mergeSupabaseWorkspace, supabaseConfig]);
+  }, [queueSupabaseSync, supabaseConfig]);
 
   const disconnectSupabase = useCallback(() => {
     window.clearTimeout(supabaseTimer.current);
     localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
+    supabaseSyncId.current += 1;
     supabaseReady.current = false;
+    cloudUpdatedAt.current = null;
     supabaseSessionRef.current = null;
     setSupabaseSession(null);
     setSupabaseState("idle");
@@ -2285,26 +2338,40 @@ function App() {
     if (!supabaseConfig || !supabaseSession || !supabaseReady.current) return undefined;
     window.clearTimeout(supabaseTimer.current);
     supabaseTimer.current = window.setTimeout(() => {
-      const snapshot = createWorkspaceSnapshot(
-        localStorage,
-        worksRef.current,
-        activeWorkId.current,
-      );
-      setSupabaseState("syncing");
-      supabaseQueue.current = supabaseQueue.current
-        .catch(() => {})
-        .then(async () => pushSupabaseWorkspace(
-          supabaseConfig,
-          await ensureSupabaseSession(supabaseConfig),
-          snapshot,
-        ));
-      supabaseQueue.current.then(
-        () => setSupabaseState("connected"),
-        () => setSupabaseState("error"),
-      );
+      queueSupabaseSync(supabaseConfig);
     }, 1200);
     return () => window.clearTimeout(supabaseTimer.current);
-  }, [ensureSupabaseSession, supabaseConfig, supabaseSession, works]);
+  }, [queueSupabaseSync, supabaseConfig, supabaseSession, works]);
+
+  useEffect(() => {
+    if (!supabaseConfig || !supabaseSession || !["connected", "error"].includes(supabaseState)) {
+      return undefined;
+    }
+    let checking = false;
+    const checkCloud = async () => {
+      if (checking || document.hidden || saveTimer.current) return;
+      checking = true;
+      try {
+        const auth = await ensureSupabaseSession(supabaseConfig);
+        const updatedAt = await pullSupabaseWorkspaceUpdatedAt(supabaseConfig, auth);
+        if (Date.parse(updatedAt) !== cloudUpdatedAt.current) {
+          await queueSupabaseSync(supabaseConfig, auth);
+        }
+      } catch {
+        setSupabaseState("error");
+      } finally {
+        checking = false;
+      }
+    };
+    const interval = window.setInterval(checkCloud, 4000);
+    window.addEventListener("focus", checkCloud);
+    document.addEventListener("visibilitychange", checkCloud);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", checkCloud);
+      document.removeEventListener("visibilitychange", checkCloud);
+    };
+  }, [ensureSupabaseSession, queueSupabaseSync, supabaseConfig, supabaseSession, supabaseState]);
 
   const createWork = useCallback(async () => {
     if (!supabaseSessionRef.current) {
@@ -2397,17 +2464,22 @@ function App() {
       `删除“${work.name}”？${published ? "Notion 中已嵌入的内容仍可查看，但无法再从这里更新。" : ""}`,
     )) return;
     const nextWorks = works.filter(({ id }) => id !== workId);
-    if (!writeWorks(localStorage, nextWorks)) {
+    const previousDeletedWorks = readDeletedWorks(localStorage);
+    const deletedAt = Date.now();
+    if (!writeDeletedWorks(localStorage, { ...previousDeletedWorks, [workId]: deletedAt }) ||
+      !writeWorks(localStorage, nextWorks, deletedAt)) {
+      writeDeletedWorks(localStorage, previousDeletedWorks);
       window.alert("删除失败，请检查浏览器存储空间。");
       return;
     }
+    worksRef.current = nextWorks;
+    setWorks(nextWorks);
     if (workId === activeWorkId.current) {
       await openWork(nextWorks[0].id);
       setWorksOpen(true);
     }
     await removeScene(localStorage, sceneKeyForWork(workId));
     localStorage.removeItem(publicationKeyForWork(workId));
-    setWorks(nextWorks);
   }, [openWork, works]);
 
   const closePathEditor = useCallback(() => {
