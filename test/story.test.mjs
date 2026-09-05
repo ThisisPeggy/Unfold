@@ -102,7 +102,7 @@ test("builds and interpolates a planned camera shot", () => {
 });
 
 test("chooses a doodle and places it beside linked elements", () => {
-  assert.deepEqual(STORY_ICON_KINDS.slice(0, 3), ["camera", "page", "link"]);
+  assert.deepEqual(STORY_ICON_KINDS.slice(0, 3), ["person", "portfolio", "product"]);
   assert.ok(STORY_ICON_KINDS.includes("none"));
   assert.equal(storyIconKind("https://instagram.com/example"), "instagram");
   assert.equal(storyIconKind("https://linkedin.com/in/example"), "linkedin");
@@ -139,7 +139,7 @@ test("chooses a doodle and places it beside linked elements", () => {
   assert.deepEqual(repairedEmbed.customData, { other: true });
   linked.customData.storyIcon = "camera";
   linked.customData.storyIconSide = "right";
-  assert.equal(getStoryIconKind(linked), "camera");
+  assert.equal(getStoryIconKind(linked), "portfolio");
   linked.customData.storyIcon = "none";
   assert.equal(getStoryIconKind(linked), "none");
   linked.customData.storyIcon = "camera";

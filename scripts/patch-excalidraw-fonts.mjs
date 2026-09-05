@@ -446,6 +446,12 @@ let applied = 0;
 for (const file of files) {
   let source = fs.readFileSync(file, "utf8");
   let changed = false;
+  const cleanStroke = source
+    .replace('disableMultiStroke: element.strokeStyle !== "solid"', 'disableMultiStroke: true /* unfold single stroke */')
+    .replace('disableMultiStroke:e.strokeStyle!=="solid"', 'disableMultiStroke:!0/* unfold single stroke */')
+    .replace('roughness: adjustRoughness(element),', 'roughness: adjustRoughness(element) * 0.6, /* unfold restrained roughness */')
+    .replace('roughness:Vm(e),', 'roughness:Vm(e)*0.6,/* unfold restrained roughness */');
+  if (cleanStroke !== source) { source = cleanStroke; changed = true; }
   for (const [before, after] of migrations) {
     if (!source.includes(before)) continue;
     source = source.replace(before, after);

@@ -3,6 +3,7 @@ import {
   mergeWorkspaceSnapshots,
   parseWorkspaceSnapshot,
 } from "./storage.js";
+import { documentAppState } from "./scene-state.js";
 
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
 export const SUPABASE_WORK_LIMIT = 10;
@@ -154,7 +155,14 @@ export async function pullSupabaseWorkspaceUpdatedAt(config, session, fetcher = 
 }
 
 function workspaceEqual(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const normalize = (workspace) => ({
+    ...workspace,
+    conflicts: workspace.conflicts ?? {},
+    scenes: Object.fromEntries(Object.entries(workspace.scenes).map(([id, scene]) => [
+      id, { ...scene, appState: documentAppState(scene.appState) },
+    ])),
+  });
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
 async function compareAndSwapSupabaseWorkspace(

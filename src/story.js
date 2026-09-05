@@ -1,12 +1,14 @@
+import { createId as makeId } from "./id.js";
+
 export const STORY_ICON_KINDS = [
-  "camera", "page", "link",
-  "instagram", "linkedin", "youtube",
-  "x", "github", "whatsapp",
+  "person", "portfolio", "product", "page",
+  "mail", "link", "video", "github",
   "none",
 ];
 
 export function storyIconKind(href = "") {
   const link = href.toLowerCase();
+  if (link.startsWith("mailto:")) return "mail";
   if (/instagram\.com/.test(link)) return "instagram";
   if (/photos|unsplash/.test(link)) return "camera";
   if (/resume|curriculum-vitae|(^|\/)cv(?:[/.?#]|$)/.test(link)) return "page";
@@ -21,11 +23,13 @@ export function storyIconKind(href = "") {
 export function getStoryIconKind(element) {
   const saved = element?.customData?.storyIcon;
   const migrated = {
-    globe: "link", code: "github", spark: "link", mail: "link",
+    globe: "link", code: "github", spark: "product",
+    camera: "portfolio", instagram: "portfolio", linkedin: "person",
+    youtube: "video", x: "person", whatsapp: "mail",
   }[saved] ?? saved;
   return STORY_ICON_KINDS.includes(migrated)
     ? migrated
-    : storyIconKind(getStoryHref(element));
+    : ({ camera: "portfolio", instagram: "portfolio", linkedin: "person", youtube: "video", x: "person", whatsapp: "mail" }[storyIconKind(getStoryHref(element))] ?? storyIconKind(getStoryHref(element)));
 }
 
 export function safeStoryHref(href = "") {
@@ -61,7 +65,7 @@ function wrapCanvasText(value, maxUnits) {
   return lines.join("\n");
 }
 
-export function createGeneratedLecture(document, createId = () => globalThis.crypto.randomUUID(), fontFamily = 2) {
+export function createGeneratedLecture(document, createId = makeId, fontFamily = 2) {
   const elements = [];
   const steps = [];
   const colors = ["#337ea9", "#448361", "#9f6b53", "#7c6f9f", "#b7791f", "#39766c"];
@@ -533,7 +537,7 @@ export function mergeHermesStoryPath(
   storyPath,
   steps,
   scopeElementIds = [],
-  createId = () => globalThis.crypto.randomUUID(),
+  createId = makeId,
 ) {
   const current = makeStoryPath(elements, storyPath);
   const key = (ids) => [...ids].sort().join("\0");

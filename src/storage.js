@@ -4,6 +4,11 @@ export const WORKS_STORAGE_KEY = "story-canvas.works.v1";
 export const ACTIVE_WORK_STORAGE_KEY = "story-canvas.active-work.v1";
 export const WORKSPACE_UPDATED_STORAGE_KEY = "story-canvas.workspace-updated.v1";
 export const DELETED_WORKS_STORAGE_KEY = "story-canvas.deleted-works.v1";
+export const SYNC_CONFLICTS_KEY = "unfold.sync-conflicts.v1";
+
+export function readSyncConflicts(storage) {
+  try { return JSON.parse(storage.getItem(SYNC_CONFLICTS_KEY)) ?? {}; } catch { return {}; }
+}
 
 export const sceneKeyForWork = (id) => `${SCENE_STORAGE_KEY}:${id}`;
 export const publicationKeyForWork = (id) => `${PUBLICATION_STORAGE_KEY}:${id}`;
@@ -83,17 +88,22 @@ export async function initializeSceneStorage(storage, indexedDb = globalThis.ind
     const request = indexedDb.open(SCENE_DATABASE_NAME, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(SCENE_STORE_NAME);
     sceneDatabase = await requestResult(request);
-    sceneDatabase.onversionchange = () => sceneDatabase.close();
+    sceneDatabase.onversionchange = () => {
+      sceneDatabase?.close();
+      sceneDatabase = null;
+    };
 
     const localKeys = Array.from({ length: storage.length }, (_, index) => storage.key(index))
       .filter((key) => key === SCENE_STORAGE_KEY || key?.startsWith(`${SCENE_STORAGE_KEY}:`));
     for (const key of localKeys) {
       try {
         const scene = await decodeStoredScene(storage.getItem(key));
-        if (scene && Array.isArray(scene.elements)) await putScene(key, scene);
+        if (scene && Array.isArray(scene.elements)) {
+          await putScene(key, scene);
+          storage.removeItem(key);
+        }
       } catch {}
     }
-    localKeys.forEach((key) => storage.removeItem(key));
 
     const transaction = sceneDatabase.transaction(SCENE_STORE_NAME);
     const store = transaction.objectStore(SCENE_STORE_NAME);
@@ -131,6 +141,8 @@ export function writeScene(storage, key, scene) {
     return queueSceneWrite(async () => {
       try {
         await putScene(key, scene);
+        // Clear only a recovery copy of this exact revision.
+        if (storage.getItem(key) === JSON.stringify(scene)) storage.removeItem?.(key);
         return true;
       } catch {
         if (sceneCache.get(key) === scene) {
@@ -234,10 +246,12 @@ export function createWorkspaceSnapshot(storage, works, activeWorkId, activeScen
       id === activeWorkId && activeScene ? activeScene : readScene(storage, sceneKeyForWork(id)),
     ])),
     deletedWorks: readDeletedWorks(storage),
+    conflicts: readSyncConflicts(storage),
   };
 }
 
-export function mergeWorkspaceSnapshots(local, cloud) {
+export function mergeWorkspaceSnapshots(local, cloud, base = null) {
+  const conflicts = { ...cloud.conflicts, ...local.conflicts };
   const localWorks = new Map(local.works.map((work) => [work.id, work]));
   const cloudWorks = new Map(cloud.works.map((work) => [work.id, work]));
   const deletedWorks = {};
@@ -265,6 +279,16 @@ export function mergeWorkspaceSnapshots(local, cloud) {
       source = localValue >= cloudValue ? local : cloud;
     }
     const work = source === local ? localWork : cloudWork;
+    const localScene = local.scenes[id];
+    const cloudScene = cloud.scenes[id];
+    const changed = (scene, previous) => JSON.stringify(scene) !== JSON.stringify(previous);
+    if (localWork && cloudWork && changed(localScene, cloudScene) &&
+        (!base || (changed(localScene, base.scenes[id]) && changed(cloudScene, base.scenes[id])))) {
+      const other = source === local ? cloud : local;
+      const otherWork = source === local ? cloudWork : localWork;
+      const key = `${id}:${otherWork.updatedAt}:${JSON.stringify(other.scenes[id].elements.map((e) => [e.id, e.version]))}`;
+      conflicts[key] = { work: otherWork, scene: other.scenes[id] };
+    }
     candidates.push({ work, scene: source.scenes[id] });
     if ((deletedWorks[id] ?? 0) >= work.updatedAt) continue;
     works.push(work);
@@ -294,6 +318,7 @@ export function mergeWorkspaceSnapshots(local, cloud) {
     works,
     scenes: Object.fromEntries(works.map(({ id }) => [id, scenes[id]])),
     deletedWorks,
+    ...(Object.keys(conflicts).length ? { conflicts } : {}),
   };
 }
 
@@ -316,20 +341,35 @@ export function parseWorkspaceSnapshot(value) {
   return { ...value, works, deletedWorks };
 }
 
-export async function writeWorkspaceSnapshot(storage, value) {
+export async function writeWorkspaceSnapshot(storage, value, isCurrent = () => true) {
   const snapshot = parseWorkspaceSnapshot(value);
   if (!snapshot) return false;
-  for (const work of snapshot.works) {
-    if (!await writeScene(storage, sceneKeyForWork(work.id), snapshot.scenes[work.id])) return false;
-  }
-  if (!writeWorks(storage, snapshot.works, snapshot.updatedAt)) return false;
-  if (!writeDeletedWorks(storage, snapshot.deletedWorks)) return false;
-  try {
-    storage.setItem(ACTIVE_WORK_STORAGE_KEY, snapshot.activeWorkId);
-    return true;
-  } catch {
-    return false;
-  }
+  return queueSceneWrite(async () => {
+    try {
+      const prepared = sceneDatabase ? await Promise.all(snapshot.works.map(async ({ id }) =>
+        [sceneKeyForWork(id), await sceneForDatabase(snapshot.scenes[id])])) : null;
+      if (!isCurrent()) return false;
+      if (prepared) {
+        const transaction = sceneDatabase.transaction(SCENE_STORE_NAME, "readwrite");
+        const done = transactionDone(transaction);
+        prepared.forEach(([key, scene]) => transaction.objectStore(SCENE_STORE_NAME).put(scene, key));
+        await done;
+        if (!isCurrent()) return false;
+        snapshot.works.forEach(({ id }) => sceneCache.set(sceneKeyForWork(id), snapshot.scenes[id]));
+      } else {
+        for (const { id } of snapshot.works) {
+          storage.setItem(sceneKeyForWork(id), JSON.stringify(snapshot.scenes[id]));
+        }
+      }
+      if (!writeWorks(storage, snapshot.works, snapshot.updatedAt)) return false;
+      if (!writeDeletedWorks(storage, snapshot.deletedWorks)) return false;
+      storage.setItem(SYNC_CONFLICTS_KEY, JSON.stringify(snapshot.conflicts ?? {}));
+      storage.setItem(ACTIVE_WORK_STORAGE_KEY, snapshot.activeWorkId);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function initializeWorkStorage(storage, createId, now = Date.now()) {
@@ -350,8 +390,11 @@ export function initializeWorkStorage(storage, createId, now = Date.now()) {
   const works = [{ id: activeWorkId, name: "未命名作品", updatedAt: now }];
   const legacyScene = readScene(storage, SCENE_STORAGE_KEY);
   const legacyPublication = readPublication(storage, PUBLICATION_STORAGE_KEY);
-  if (legacyScene && writeScene(storage, sceneKeyForWork(activeWorkId), legacyScene)) {
-    storage.removeItem?.(SCENE_STORAGE_KEY);
+  if (legacyScene) {
+    const saved = writeScene(storage, sceneKeyForWork(activeWorkId), legacyScene);
+    if (saved instanceof Promise) {
+      saved.then((ok) => { if (ok) storage.removeItem?.(SCENE_STORAGE_KEY); });
+    } else if (saved) storage.removeItem?.(SCENE_STORAGE_KEY);
   }
   if (legacyPublication && writePublication(
     storage,
@@ -407,8 +450,7 @@ export async function pruneStaleWorkStorage(storage, workIds) {
   await Promise.all(stale.map((key) => key.startsWith(`${SCENE_STORAGE_KEY}:`)
     ? removeScene(storage, key)
     : storage.removeItem(key)));
-  await removeScene(storage, SCENE_STORAGE_KEY);
-  storage.removeItem?.(PUBLICATION_STORAGE_KEY);
+  // Legacy data is removed only by successful migration, never by pruning.
 }
 
 export function serializeUnfoldScene(scene) {

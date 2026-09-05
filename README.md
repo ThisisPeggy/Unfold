@@ -42,6 +42,7 @@ npm run dev
 ```bash
 npm test
 npm run build
+npm run test:browser
 ```
 
 ## 配置云同步
@@ -70,6 +71,13 @@ Unfold 不配置云服务也可以使用，作品默认保存在当前浏览器�
 4. 重新启动开发服务，在 Unfold 中注册或登录。
 
 云同步最多保存 10 个作品，用于多设备继续编辑，不是多人实时共同编辑。
+
+同步发生版本冲突时会保留被替换的版本，可从主菜单“导出同步冲突副本”导出 `.unfold` 后重新导入。
+
+小红书构建使用 `npm run build:xhs`，输出到 `dist-xhs`，并转换中文字体为 WOFF2。
+仅在发布审计通过后生成 `artifacts/unfold-xhs.zip`；失败详情见 `artifacts/xhs-audit.json`。
+网页版使用 `npm run build`，输出到 `dist`。不要把旧的根目录 ZIP 当作最新版本。
+浏览器测试默认使用 Windows 安装的 Chrome，其他环境通过 `CHROME_PATH` 指定浏览器可执行文件。
 
 ## 连接 Hermes
 

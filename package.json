@@ -7,6 +7,8 @@
     "postinstall": "node scripts/patch-excalidraw-fonts.mjs",
     "dev": "vite --force --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
+    "build:xhs": "node scripts/build-xhs.mjs",
+    "test:browser": "playwright test",
     "setup:supabase": "node scripts/print-supabase-sql.mjs",
     "test": "node --test test/*.test.mjs"
   },
@@ -24,5 +26,11 @@
       "nanoid": "5.1.16"
     },
     "lodash-es": "4.18.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "fake-indexeddb": "^6.2.5",
+    "fflate": "^0.8.3",
+    "wawoff2": "^2.0.1"
   }
 }

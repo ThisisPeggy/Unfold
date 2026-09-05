@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
@@ -35,6 +35,7 @@ import {
   readPublication,
   readDeletedWorks,
   readScene,
+  readSyncConflicts,
   sceneIdFromPath,
   sceneKeyForWork,
   serializeUnfoldScene,
@@ -60,6 +61,8 @@ import {
   writeSupabaseSession,
 } from "./supabase-sync.js";
 import { missingArrowhead } from "./tool-state.js";
+import { createId } from "./id.js";
+import { documentAppState, documentSignature } from "./scene-state.js";
 import {
   clearHermesConnection,
   createHermesConnection,
@@ -195,14 +198,19 @@ async function imageSourceDataUrl(src) {
   });
 }
 const STORY_ICON_LABELS = {
+  person: "个人介绍",
+  portfolio: "作品集",
+  product: "产品",
+  mail: "联系",
+  video: "视频演示",
   camera: "照片",
-  page: "页面",
-  link: "通用链接",
+  page: "文档",
+  link: "网站",
   instagram: "Instagram",
   linkedin: "LinkedIn",
   youtube: "YouTube",
   x: "X",
-  github: "GitHub",
+  github: "代码",
   whatsapp: "WhatsApp",
   none: "无图标",
 };
@@ -216,88 +224,40 @@ const LEGACY_COLORS = {
 };
 
 function starterScene() {
+  const text = (id, x, y, value, size = 20, color = "#37352f") => ({
+    id, type: "text", x, y, text: value, fontSize: size,
+    fontFamily: FONT_FAMILY.Excalifont, strokeColor: color,
+  });
+  const elements = convertToExcalidrawElements([
+    text("intro-title", 100, 80, "Unfold", 64, "#337ea9"),
+    text("intro-subtitle", 104, 166, "一张会讲故事的白板", 28),
+    text("intro-description", 104, 218, "把散落的想法画出来，再带别人一步步看懂。", 18, "#787774"),
+    text("draw-title", 104, 330, "01  自由画", 28, "#337ea9"),
+    text("draw-body", 104, 382, "文字、图形、图片和链接\n自由摆放，画布可以一直延伸。"),
+    text("story-title", 550, 330, "02  串成故事", 28, "#448361"),
+    text("story-body", 550, 382, "选中内容，加入右上角「路径」\n安排顺序、讲解和镜头。"),
+    text("share-title", 104, 540, "03  带人看懂", 28, "#a56a3a"),
+    text("share-body", 104, 592, "点击「讲解模式」试着播放\n也可以导出，或发布分享链接。"),
+    text("agent-title", 550, 540, "一起想，一起画", 28, "#448361"),
+    text("agent-body", 550, 592, "右下角是 Agent 助手\n连接后，帮你生成内容、整理画布。"),
+    text("try-it", 104, 742, "试试看：双击改一句话，再拖动它。\n这张画布就是你的第一份作品。", 18, "#787774"),
+    { type: "arrow", x: 412, y: 347, points: [[0, 0], [92, 0]], strokeColor: "#448361", endArrowhead: "arrow", roughness: 1, strokeWidth: 1 },
+    { type: "line", x: 104, y: 272, points: [[0, 0], [760, 0]], strokeColor: "#d8d6d0", roughness: 1, strokeWidth: 1 },
+  ], { regenerateIds: false });
   return withoutNativeLinks({
-    elements: convertToExcalidrawElements([
-      {
-        type: "text",
-        x: 418,
-        y: 300,
-        text: "你好，我是 Peggy。",
-        fontFamily: FONT_FAMILY.Helvetica,
-        fontSize: 22,
-        strokeColor: "#4a4843",
-      },
-      {
-        type: "text",
-        x: 370,
-        y: 344,
-        text: "我做产品，也把想法变成作品。",
-        fontFamily: FONT_FAMILY.Helvetica,
-        fontSize: 18,
-        strokeColor: "#4a4843",
-      },
-      {
-        type: "text",
-        x: 420,
-        y: 160,
-        text: "Customer Map",
-        fontFamily: FONT_FAMILY.Excalifont,
-        fontSize: 22,
-        strokeColor: "#337ea9",
-        link: "https://www.customer-map.com/",
-      },
-      {
-        type: "arrow",
-        x: 485,
-        y: 215,
-        points: [[0, 0], [0, 54]],
-        strokeColor: "#337ea9",
-        endArrowhead: "arrow",
-        roughness: 1,
-      },
-      {
-        type: "text",
-        x: 724,
-        y: 330,
-        text: "产品与生活",
-        fontFamily: FONT_FAMILY.Excalifont,
-        fontSize: 22,
-        strokeColor: "#448361",
-      },
-      {
-        type: "arrow",
-        x: 704,
-        y: 344,
-        points: [[0, 0], [-72, 0]],
-        strokeColor: "#448361",
-        endArrowhead: "arrow",
-        roughness: 1,
-      },
-      {
-        type: "text",
-        x: 275,
-        y: 450,
-        text: "关于 Peggy",
-        fontFamily: FONT_FAMILY.Excalifont,
-        fontSize: 22,
-        strokeColor: "#9f6b53",
-      },
-      {
-        type: "arrow",
-        x: 375,
-        y: 430,
-        points: [[0, 0], [38, -44]],
-        strokeColor: "#9f6b53",
-        endArrowhead: "arrow",
-        roughness: 1,
-      },
-    ]),
+    elements,
     files: {},
     appState: { viewBackgroundColor: PAPER },
     scrollToContent: true,
+    storyPath: [
+      { id: "intro", elementIds: ["intro-title", "intro-subtitle", "intro-description"], title: "认识 Unfold", note: "把想法放到白板上，用观看顺序把内容讲清楚。" },
+      { id: "draw", elementIds: ["draw-title", "draw-body"], title: "自由画", note: "从顶部工具栏添加文字、图形和图片，拖动画布探索更多空间。" },
+      { id: "story", elementIds: ["story-title", "story-body"], title: "串成故事", note: "选中一组内容，加入路径。每一步都可以设置讲解和镜头。" },
+      { id: "share", elementIds: ["share-title", "share-body"], title: "带人看懂", note: "你现在就在讲解模式里。回到编辑后，还可以导出作品或发布分享链接。" },
+      { id: "agent", elementIds: ["agent-title", "agent-body", "try-it"], title: "开始你的创作", note: "修改这张示例，或新建空白作品。需要灵感时，可以连接右下角的 Agent 助手。" },
+    ],
   });
 }
-
 function withoutNativeLinks(scene) {
   return {
     ...scene,
@@ -309,7 +269,7 @@ function withoutNativeLinks(scene) {
       ),
     ),
     appState: {
-      ...scene.appState,
+      ...documentAppState(scene.appState),
       activeTool: {
         type: "selection",
         customType: null,
@@ -319,6 +279,8 @@ function withoutNativeLinks(scene) {
       viewBackgroundColor: PAPER,
       currentItemStrokeColor: DEFAULT_STROKE_COLOR,
       currentItemOpacity: 100,
+      currentItemStrokeWidth: 1,
+      currentItemRoughness: 1,
     },
   };
 }
@@ -440,8 +402,19 @@ function LinkDoodle({ kind, x, y, size }) {
     stroke: "currentColor",
     strokeLinecap: "round",
     strokeLinejoin: "round",
-    strokeWidth: 1.8,
+    strokeWidth: 1.5,
   };
+  const curated = {
+    person: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20v-1a7 7 0 0 1 14 0v1" /></>,
+    portfolio: <><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M3 12c5 3 13 3 18 0M10 13h4" /></>,
+    product: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3ZM4 7.5l8 4.5 8-4.5M12 12v9M8 5.25l8 4.5" /></>,
+    page: <><path d="M6 3h8l4 4v14H6V3ZM14 3v5h4M9 12h6M9 16h4" /></>,
+    mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></>,
+    link: <><circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3 12h18" /></>,
+    video: <><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m10 9 5 3-5 3V9Z" /></>,
+    github: <><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16" /></>,
+  };
+  if (curated[kind]) return <svg {...common}>{curated[kind]}</svg>;
   const paths = {
     camera: <><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3Z" /><circle cx="12" cy="13" r="4" /></>,
     page: <><path d="M6 2h8l4 4v16H6Z" /><path d="M14 2v5h5M9 12h6M9 16h6" /></>,
@@ -629,7 +602,7 @@ function HermesAssistantPanel({
   const slashOptionRefs = useRef([]);
   const firstActionRef = useRef(null);
   const generationRef = useRef(null);
-  const agentSessionRef = useRef(crypto.randomUUID());
+  const agentSessionRef = useRef(createId());
   const panelRef = useRef(null);
   const command = useMemo(() => hermesConnectorSetupCommand(), []);
   const slashSuggestions = useMemo(() => {
@@ -773,7 +746,7 @@ function HermesAssistantPanel({
     }
     setAttachmentError("");
     setAttachments((value) => [...value, ...incoming.map((file) => ({
-      id: crypto.randomUUID(),
+      id: createId(),
       file,
       preview: URL.createObjectURL(file),
     }))]);
@@ -789,7 +762,7 @@ function HermesAssistantPanel({
     const pendingAttachments = attachments;
     const displayPrompt = prompt || (pendingAttachments.length ? "请根据这些图片继续创作。" : "");
     if (!displayPrompt || busy || connectionState !== "connected") return;
-    const id = crypto.randomUUID();
+    const id = createId();
     const conversation = messages
       .filter((message) => !message.error)
       .slice(-8)
@@ -815,7 +788,7 @@ function HermesAssistantPanel({
         );
         agentSessionRef.current = result.sessionId || agentSessionRef.current;
         setMessages((value) => [...value, {
-          id: crypto.randomUUID(),
+          id: createId(),
           role: "assistant",
           text: result.message || (result.images.length ? "图片已生成。" : "Hermes 已完成。"),
           images: result.images,
@@ -832,7 +805,7 @@ function HermesAssistantPanel({
       const draftPlan = [...messages].reverse().find((message) => message.plan)?.plan;
       const plan = await onGeneratePlan(goal, draftPlan, conversation, controller.signal);
       setMessages((value) => [...value, {
-        id: crypto.randomUUID(),
+        id: createId(),
         role: "assistant",
         text: plan.mode === "chat"
           ? plan.message
@@ -843,7 +816,7 @@ function HermesAssistantPanel({
       }]);
     } catch (error) {
       setMessages((value) => [...value, {
-        id: crypto.randomUUID(),
+        id: createId(),
         role: "assistant",
         text: error?.name === "AbortError"
           ? "已停止生成。"
@@ -872,7 +845,7 @@ function HermesAssistantPanel({
     setMessages([]);
     setInput("");
     clearAttachments();
-    agentSessionRef.current = crypto.randomUUID();
+    agentSessionRef.current = createId();
     requestAnimationFrame(() => composerRef.current?.focus());
   };
   const retryMessage = [...messages].reverse().find((message) => message.retryPrompt);
@@ -1229,6 +1202,13 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
   const [invalid, setInvalid] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const popoverRef = useRef(null);
+  const [popoverHeight, setPopoverHeight] = useState(560);
+  useLayoutEffect(() => {
+    const measure = () => setPopoverHeight(popoverRef.current?.offsetHeight ?? 560);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
   const inputRef = useRef(null);
   const zoom = appState?.zoom?.value ?? 1;
   const anchorRect = anchor?.getBoundingClientRect();
@@ -1237,7 +1217,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
   const anchorY = anchorRect?.top ??
     (appState?.offsetTop ?? 0) + (element.y + (appState?.scrollY ?? 0)) * zoom;
   const anchorBottom = anchorRect?.bottom ?? anchorY + element.height * zoom;
-  const below = anchorBottom + 360 < window.innerHeight;
+  const below = anchorBottom + popoverHeight + 24 < window.innerHeight || anchorY < popoverHeight + 24;
   const left = Math.max(16, Math.min(anchorX - 12, window.innerWidth - 316));
 
   useEffect(() => {
@@ -1278,7 +1258,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
       id="story-link-popover"
       ref={popoverRef}
       className={`link-popover link-popover--${below ? "below" : "above"}`}
-      style={{ left, top: below ? anchorBottom + 8 : anchorY - 8 }}
+      style={{ left, top: below ? Math.max(16, Math.min(anchorBottom + 8, window.innerHeight - popoverHeight - 16)) : anchorY - 8 }}
       role="dialog"
       aria-modal="false"
       aria-labelledby="link-popover-title"
@@ -1311,7 +1291,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
       <fieldset className="link-options">
         <legend>图标</legend>
         <div className="icon-options">
-          {STORY_ICON_KINDS.map((value) => (
+          {STORY_ICON_KINDS.filter((value) => value !== "none").map((value) => (
             <label key={value} title={STORY_ICON_LABELS[value]}>
               <input
                 type="radio"
@@ -1332,9 +1312,22 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
                   : <svg aria-hidden="true" viewBox="0 0 24 24">
                     <LinkDoodle kind={value} x={0} y={0} size={24} />
                   </svg>}
+                {value !== "none" && <small>{STORY_ICON_LABELS[value]}</small>}
               </span>
             </label>
           ))}
+        </div>
+        <div className="icon-options icon-options--utilities">
+          <label>
+            <input type="radio" name="story-icon" value="none" checked={icon === "none"} aria-label="无图标"
+              onChange={() => {
+                setIcon("none");
+                setCustomIcon("");
+                setUploadError("");
+                onPreview({ icon: "none", side, customIcon: "" });
+              }} />
+            <span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><circle cx="12" cy="12" r="8" /><path d="m6.3 6.3 11.4 11.4" /></svg>无图标</span>
+          </label>
           <label className="custom-icon-option" data-selected={icon === "custom"}>
             <input
               type="file"
@@ -1368,7 +1361,7 @@ function LinkPopover({ element, appState, anchor, onClose, onSave, onPreview, on
         {uploadError && <p id="link-icon-error" className="field-error" role="alert">{uploadError}</p>}
       </fieldset>
 
-      {icon !== "none" && <fieldset className="link-options">
+      {icon !== "none" && <fieldset className="link-options link-options--position">
         <legend>图标位置</legend>
         <div className="segmented-options segmented-options--two">
           {[['left', '左侧'], ['right', '右侧']].map(([value, label]) => (
@@ -2047,7 +2040,7 @@ function App() {
   const sharedSceneId = useMemo(() => sceneIdFromPath(location.pathname), []);
   const isShared = Boolean(sharedPayload || sharedSceneId);
   const workspace = useMemo(
-    () => initializeWorkStorage(localStorage, () => crypto.randomUUID()),
+    () => initializeWorkStorage(localStorage, createId),
     [],
   );
   const savedLocalScene = useMemo(
@@ -2111,6 +2104,8 @@ function App() {
   );
   const supabaseSessionRef = useRef(supabaseSession);
   const saveRevision = useRef(0);
+  const persistedDocument = useRef(null);
+  const pendingDocument = useRef(false);
   const activeWorkId = useRef(workspace.activeWorkId);
   const publication = useRef(
     readPublication(localStorage, publicationKeyForWork(workspace.activeWorkId)),
@@ -2142,12 +2137,17 @@ function App() {
   );
 
   const persistScene = useCallback((nextScene) => {
+    const signature = documentSignature(nextScene);
+    if (signature === persistedDocument.current) return;
+    persistedDocument.current = signature;
+    pendingDocument.current = true;
     window.clearTimeout(saveTimer.current);
     const revision = ++saveRevision.current;
     const workId = activeWorkId.current;
     saveTimer.current = window.setTimeout(async () => {
       saveTimer.current = undefined;
       if (!await writeScene(localStorage, sceneKeyForWork(workId), nextScene)) {
+        persistedDocument.current = null;
         if (revision === saveRevision.current) setSaveError(true);
         return;
       }
@@ -2158,7 +2158,10 @@ function App() {
         writeWorks(localStorage, nextWorks);
         return nextWorks;
       });
-      if (revision === saveRevision.current) setSaveError(false);
+      if (revision === saveRevision.current) {
+        pendingDocument.current = false;
+        setSaveError(false);
+      }
     }, 400);
   }, []);
 
@@ -2187,6 +2190,7 @@ function App() {
     }
     localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, workId);
     activeWorkId.current = workId;
+    persistedDocument.current = null;
     publication.current = readPublication(localStorage, publicationKeyForWork(workId));
     const nextScene = withoutNativeLinks(
       readScene(localStorage, sceneKeyForWork(workId)) ?? starterScene(),
@@ -2216,19 +2220,22 @@ function App() {
     fitWorkToViewport(excalidrawAPI, latestScene.current?.elements);
   }, [excalidrawAPI, isShared]);
 
-  const applySyncedWorkspace = useCallback(async (value) => {
+  const applySyncedWorkspace = useCallback(async (value, isCurrent = () => true) => {
     const snapshot = parseWorkspaceSnapshot(value);
     if (!snapshot) throw new Error("云端作品数据格式无效。");
     const activeChanged = snapshot.activeWorkId !== activeWorkId.current ||
-      JSON.stringify(snapshot.scenes[snapshot.activeWorkId]) !== JSON.stringify(latestScene.current);
-    if (!await writeWorkspaceSnapshot(localStorage, snapshot)) {
+      documentSignature(snapshot.scenes[snapshot.activeWorkId]) !== documentSignature(latestScene.current);
+    if (!await writeWorkspaceSnapshot(localStorage, snapshot, isCurrent)) {
+      if (!isCurrent()) return false;
       throw new Error("浏览器存储空间不足，无法下载云端作品。");
     }
+    if (!isCurrent()) return false;
     if (JSON.stringify(snapshot.works) !== JSON.stringify(worksRef.current)) {
       worksRef.current = snapshot.works;
       setWorks(snapshot.works);
     }
     if (activeChanged) await openWork(snapshot.activeWorkId, true);
+    return true;
   }, [openWork]);
 
   const ensureSupabaseSession = useCallback(async (config) => {
@@ -2255,13 +2262,16 @@ function App() {
     );
     const result = await syncSupabaseWorkspace(config, auth, local, { adoptCloud });
     if (syncId !== supabaseSyncId.current) return;
-    cloudUpdatedAt.current = Date.parse(result.cloudUpdatedAt);
-    adoptCloudOnFirstSync.current = false;
     if (revision !== saveRevision.current || saveTimer.current) return;
     const workspace = !adoptCloud && result.workspace.works.some(
       ({ id }) => id === deviceActiveWorkId,
     ) ? { ...result.workspace, activeWorkId: deviceActiveWorkId } : result.workspace;
-    await applySyncedWorkspace(workspace);
+    const applied = await applySyncedWorkspace(workspace, () =>
+      syncId === supabaseSyncId.current && revision === saveRevision.current && !saveTimer.current);
+    if (applied) {
+      cloudUpdatedAt.current = Date.parse(result.cloudUpdatedAt);
+      adoptCloudOnFirstSync.current = false;
+    }
   }, [applySyncedWorkspace]);
 
   const queueSupabaseSync = useCallback((config, auth, adoptCloud = false) => {
@@ -2423,7 +2433,7 @@ function App() {
     const suggestedName = `作品 ${works.length + 1}`;
     const name = window.prompt("作品名称", suggestedName)?.trim().slice(0, 80);
     if (!name) return;
-    const id = crypto.randomUUID();
+    const id = createId();
     const appState = {
       ...latestScene.current.appState,
       scrollX: 0,
@@ -2601,7 +2611,7 @@ function App() {
     for (const text of texts) {
       const rects = highlightsByText.get(text.id);
       if (!rects) continue;
-      const groupId = text.customData?.textHighlightGroup ?? crypto.randomUUID();
+      const groupId = text.customData?.textHighlightGroup ?? createId();
       const groupIds = text.groupIds?.includes(groupId)
         ? text.groupIds
         : [groupId, ...(text.groupIds ?? [])];
@@ -2611,7 +2621,7 @@ function App() {
       }));
       highlights.set(text.id, convertToExcalidrawElements(
         rects.map((rect) => ({
-          id: crypto.randomUUID(),
+          id: createId(),
           type: "rectangle",
           ...rect,
           strokeColor: "transparent",
@@ -2649,6 +2659,33 @@ function App() {
     },
     [],
   );
+
+  useEffect(() => {
+    const checkpoint = () => {
+      if (!pendingDocument.current) return true;
+      try {
+        const workId = activeWorkId.current;
+        const updatedAt = Date.now();
+        // Synchronous recovery copy survives a tab closing before IndexedDB commits.
+        localStorage.setItem(sceneKeyForWork(workId), JSON.stringify(latestScene.current));
+        const nextWorks = worksRef.current.map((work) => work.id === workId ? { ...work, updatedAt } : work);
+        if (!writeWorks(localStorage, nextWorks, updatedAt)) return false;
+        return true;
+      } catch { return false; }
+    };
+    const hidden = () => { if (document.hidden) checkpoint(); };
+    const leaving = (event) => {
+      if (!checkpoint()) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("pagehide", checkpoint);
+    window.addEventListener("beforeunload", leaving);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", checkpoint);
+      window.removeEventListener("beforeunload", leaving);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, []);
 
   useEffect(() => {
     const connection = readHermesConnection();
@@ -2724,6 +2761,8 @@ function App() {
         appState: {
           currentItemStrokeColor: DEFAULT_STROKE_COLOR,
           currentItemOpacity: 100,
+          currentItemStrokeWidth: 1,
+          currentItemRoughness: 1,
         },
       });
     }
@@ -2790,7 +2829,7 @@ function App() {
       ...latestScene.current,
       elements: savedElements,
       appState: {
-        ...savedAppState,
+        ...documentAppState(savedAppState),
         activeTool: {
           type: "selection",
           customType: null,
@@ -3048,7 +3087,7 @@ function App() {
         files: imported.files ?? {},
         storyPath: Array.isArray(imported.storyPath) ? imported.storyPath : [],
     });
-    const id = crypto.randomUUID();
+    const id = createId();
     const name = file.name.replace(/\.(?:unfold|excalidraw)$/i, "").trim() || `作品 ${works.length + 1}`;
     const nextWorks = [...works, { id, name: name.slice(0, 80), updatedAt: Date.now() }];
     await pruneStaleWorkStorage(localStorage, new Set(works.map((work) => work.id)));
@@ -3144,7 +3183,7 @@ function App() {
       latestScene.current.elements,
       latestScene.current.storyPath,
     );
-    const stepId = crypto.randomUUID();
+    const stepId = createId();
     path.push({ id: stepId, elementIds: selectedStoryElementIds });
     commitStoryPath(path);
     return stepId;
@@ -3209,7 +3248,7 @@ function App() {
         clientX: (appState.offsetLeft ?? 0) + (appState.width ?? window.innerWidth) / 2,
         clientY: (appState.offsetTop ?? 0) + (appState.height ?? window.innerHeight) / 2,
       }, appState);
-      const fileId = crypto.randomUUID().replaceAll("-", "");
+      const fileId = createId().replaceAll("-", "");
       const file = {
         id: fileId,
         dataURL,
@@ -3258,7 +3297,7 @@ function App() {
     if (plan.mode !== "create") return { ...plan, sourceRevision, scopeElementIds };
     const generated = plan.visual
       ? (() => {
-          const ids = new Map(plan.visual.elements.map(({ key }) => [key, crypto.randomUUID()]));
+      const ids = new Map(plan.visual.elements.map(({ key }) => [key, createId()]));
           return {
             elements: plan.visual.elements.map(({ key, startKey, endKey, ...element }) => ({
               id: ids.get(key),
@@ -3276,7 +3315,7 @@ function App() {
         })()
       : createGeneratedLecture(
           plan.document,
-          () => crypto.randomUUID(),
+          createId,
           FONT_FAMILY.Helvetica,
         );
     const convertedElements = convertToExcalidrawElements(generated.elements, { regenerateIds: false });
@@ -3309,7 +3348,7 @@ function App() {
     setAgentUndoAvailable(true);
     const nextPath = plan.mode === "create"
       ? plan.steps.map((step) => ({
-          id: crypto.randomUUID(),
+          id: createId(),
           elementIds: step.elementIds,
           title: step.title,
           ...(step.note ? { note: step.note } : {}),
@@ -3368,7 +3407,7 @@ function App() {
     setEditorView({ elements: previous.elements, appState: previous.appState });
     setStoryPath(previous.storyPath);
     excalidrawAPI?.addFiles(Object.values(previous.files ?? {}));
-    excalidrawAPI?.updateScene({ elements: previous.elements, appState: previous.appState });
+    excalidrawAPI?.updateScene({ elements: previous.elements, appState: documentAppState(previous.appState) });
     persistScene(previous);
     return "";
   }, [excalidrawAPI, persistScene]);
@@ -3576,6 +3615,19 @@ function App() {
         >
         <MainMenu>
           <MainMenu.Group>
+            {Object.keys(readSyncConflicts(localStorage)).length > 0 && <MainMenu.Item onSelect={() => {
+              const conflicts = Object.values(readSyncConflicts(localStorage));
+              if (!conflicts.length) { window.alert("没有需要恢复的同步冲突版本。"); return; }
+              // Download each preserved version as a normal importable scene.
+              conflicts.forEach(({ work, scene }) => {
+                const url = URL.createObjectURL(new Blob([serializeUnfoldScene(scene)], { type: "application/json" }));
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `${work.name}-冲突副本-${work.updatedAt}.unfold`;
+                link.click();
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              });
+            }}>下载保留的另一版本</MainMenu.Item>}
             <MainMenu.Item
               icon={(
                 <svg
@@ -3710,12 +3762,19 @@ function App() {
             <WelcomeScreen.Center.Heading>
               把经历、想法和故事画出来。
             </WelcomeScreen.Center.Heading>
-            <WelcomeScreen.Center.Menu>
-              <WelcomeScreen.Center.MenuItem onSelect={() => fileInputRef.current?.click()}>
-                打开一张画板
-              </WelcomeScreen.Center.MenuItem>
-              <WelcomeScreen.Center.MenuItemHelp />
-            </WelcomeScreen.Center.Menu>
+            <p className="unfold-welcome-description">从一笔开始，或打开示例认识 Unfold。</p>
+            <div className="unfold-welcome-actions">
+              <button type="button" className="text-button text-button--primary" onClick={() => {
+                const nextScene = starterScene();
+                latestScene.current = nextScene;
+                setScene(nextScene);
+                setStoryPath(nextScene.storyPath);
+                excalidrawAPI?.updateScene({ elements: nextScene.elements, appState: nextScene.appState });
+                fitWorkToViewport(excalidrawAPI, nextScene.elements);
+                persistScene(nextScene);
+              }}>认识 Unfold</button>
+              <button type="button" className="text-button" onClick={() => fileInputRef.current?.click()}>打开作品</button>
+            </div>
           </WelcomeScreen.Center>
           <WelcomeScreen.Hints.ToolbarHint>
             文字、箭头和图片都在这里
@@ -3724,7 +3783,7 @@ function App() {
             打开与导出
           </WelcomeScreen.Hints.MenuHint>
           <WelcomeScreen.Hints.HelpHint>
-            快捷键
+            Agent 助手
           </WelcomeScreen.Hints.HelpHint>
         </WelcomeScreen>
         </Excalidraw>
