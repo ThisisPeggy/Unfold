@@ -258,7 +258,37 @@ function starterScene() {
     ],
   });
 }
+function withStarterCameras(scene) {
+  if (!scene.elements.some((element) => element.id === "intro-title" && element.text === "Unfold") ||
+      scene.storyPath?.map((step) => step.id).join(",") !== "intro,draw,story,share,agent") return scene;
+  const frameFor = (ids, padding = 48) => {
+    const members = scene.elements.filter((element) => !element.isDeleted && ids.includes(element.id));
+    if (!members.length) return null;
+    const left = Math.min(...members.map((element) => element.x));
+    const top = Math.min(...members.map((element) => element.y));
+    const right = Math.max(...members.map((element) => element.x + element.width));
+    const bottom = Math.max(...members.map((element) => element.y + element.height));
+    return { x: left - padding, y: top - padding, width: right - left + padding * 2, height: bottom - top + padding * 2 };
+  };
+  const overview = frameFor(scene.elements.map((element) => element.id));
+  return { ...scene, storyPath: scene.storyPath.map((step) => {
+    // Existing, user-authored camera settings always take precedence.
+    if (step.camera || step.cameraStart) return step;
+    const focus = frameFor(step.id === "agent" ? ["agent-title", "agent-body"] : step.elementIds);
+    if (!focus || !overview) return step;
+    const ending = step.id === "agent";
+    return {
+      ...step,
+      cameraStart: focus,
+      camera: ending ? overview : focus,
+      cameraPreset: ending ? "custom" : "still",
+      cameraDuration: ending ? 4500 : 3000,
+    };
+  }) };
+}
+
 function withoutNativeLinks(scene) {
+  scene = withStarterCameras(scene);
   return {
     ...scene,
     elements: stashStoryLinks(scene.elements).map((element) =>
