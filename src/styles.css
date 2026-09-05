@@ -2605,6 +2605,7 @@ body,
 }
 
 .story-steps {
+  max-width: calc(100vw - 32px);
   position: relative;
   z-index: 5;
   display: flex;
@@ -2618,6 +2619,7 @@ body,
 }
 
 .story-steps button {
+  flex-shrink: 0;
   appearance: none;
   display: grid;
   width: 40px;
@@ -2661,12 +2663,14 @@ body,
 }
 
 .story-step-status {
-  display: grid;
-  min-width: 180px;
-  max-width: min(440px, 58vw);
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: none;
+  gap: 4px 12px;
   padding: 6px 10px;
-  text-align: center;
+  text-align: left;
 }
 
 .story-step-status strong {
@@ -2678,20 +2682,18 @@ body,
 }
 
 .story-step-meta {
+  white-space: nowrap;
   color: var(--tale-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 
 .story-step-note {
-  display: -webkit-box;
-  overflow: hidden;
+  display: block;
   color: var(--tale-muted);
   font-size: 12px;
   line-height: 1.45;
-  text-wrap: pretty;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
 .story-link-hit {
