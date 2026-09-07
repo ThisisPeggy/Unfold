@@ -8,6 +8,11 @@ alter table public.unfold_user_workspace enable row level security;
 revoke all on table public.unfold_user_workspace from anon, authenticated;
 grant select, insert, update on table public.unfold_user_workspace to authenticated;
 
+-- Unfold syncs a complete workspace in one request. Supabase's authenticated
+-- role defaults to 8 seconds, which can be too short for larger workspaces.
+alter role authenticated set statement_timeout = '30s';
+notify pgrst, 'reload config';
+
 drop policy if exists "Users read their own Unfold workspace" on public.unfold_user_workspace;
 create policy "Users read their own Unfold workspace"
 on public.unfold_user_workspace for select to authenticated

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   addSupabaseConfigToUrl,
+  fetchSupabaseWithTimeout,
   normalizeSupabaseConfig,
   pullPublicScene,
   pullSupabaseWorkspace,
@@ -64,6 +65,8 @@ test("accepts browser-safe Supabase settings and rejects secret keys", () => {
   assert.match(SUPABASE_SETUP_SQL, /storage\.buckets/);
   assert.match(SUPABASE_SETUP_SQL, /unfold_public_scene/);
   assert.match(SUPABASE_SETUP_SQL, /to anon/);
+  assert.match(SUPABASE_SETUP_SQL, /alter role authenticated set statement_timeout = '30s'/);
+  assert.match(SUPABASE_SETUP_SQL, /notify pgrst, 'reload config'/);
 });
 
 test("stores a personal Supabase config and binds its session to that project", () => {
@@ -85,6 +88,18 @@ test("puts the personal Supabase config in public share links", () => {
   const url = addSupabaseConfigToUrl(new URL("https://unfold.example/s/my-work"), config);
   assert.deepEqual(supabaseConfigFromHash(url.hash), config);
   assert.equal(url.pathname, "/s/my-work");
+});
+
+test("times out a stalled Supabase request and aborts it", async () => {
+  let signal;
+  await assert.rejects(
+    fetchSupabaseWithTimeout((_url, options) => {
+      signal = options.signal;
+      return new Promise(() => {});
+    }, `${config.url}/auth/v1/token`, {}, 5),
+    /连接 Supabase 超时/,
+  );
+  assert.equal(signal.aborted, true);
 });
 
 test("publishes a scene for anonymous one-time reads", async () => {
@@ -222,8 +237,20 @@ test("pulls the signed-in user's workspace", async () => {
   };
   assert.deepEqual(await pullSupabaseWorkspace(config, session, fetcher), payload);
   assert.match(call.url, /select=payload/);
+  assert.match(call.url, new RegExp(`user_id=eq\\.${session.user.id}`));
+  assert.match(call.url, /limit=1/);
   assert.equal(call.options.headers.apikey, config.key);
   assert.equal(call.options.headers.Authorization, "Bearer access");
+});
+
+test("turns a Postgres statement timeout into setup guidance", async () => {
+  await assert.rejects(
+    pullSupabaseWorkspace(config, session, async () => new Response(JSON.stringify({
+      code: "57014",
+      message: "canceling statement due to statement timeout",
+    }), { status: 500 })),
+    /重新运行最新版初始化 SQL/,
+  );
 });
 
 test("syncs more than ten works to a personal Supabase project", async () => {

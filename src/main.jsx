@@ -1750,19 +1750,20 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
-function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect, onResetConfig, onSaveConfig, status }) {
+function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect, onResetConfig, onRetry, onSaveConfig, status, statusMessage }) {
   const [projectUrl, setProjectUrl] = useState(config?.url ?? "");
   const [publishableKey, setPublishableKey] = useState(config?.key ?? "");
   const [email, setEmail] = useState(session?.user?.email ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busyPhase, setBusyPhase] = useState("idle");
   const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState("signin");
   const [setupStage, setSetupStage] = useState("choice");
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const passwordValid = password.length >= 6;
+  const busy = busyPhase !== "idle";
   const dialogTitle = session
     ? "云同步"
     : config
@@ -1802,11 +1803,14 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
 
   const connect = async (event) => {
     event.preventDefault();
-    setBusy(true);
+    setBusyPhase("authenticating");
     setError("");
     setNotice("");
     try {
-      const result = await onConnect({ email, password, mode });
+      const result = await onConnect(
+        { email, password, mode },
+        (phase) => setBusyPhase(phase),
+      );
       if (result?.pending) {
         setMode("signin");
         setNotice("注册成功。请先查收验证邮件，然后回来登录。");
@@ -1814,7 +1818,7 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
     } catch (connectionError) {
       setError(connectionError.message || "连接失败，请检查配置。");
     } finally {
-      setBusy(false);
+      setBusyPhase("idle");
     }
   };
 
@@ -1825,7 +1829,9 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
           <span aria-hidden="true" />
           <div>
             <strong>{status === "syncing" ? "正在同步" : status === "error" ? "连接异常" : "已连接"}</strong>
-            <p>{session.user.email} · {new URL(config.url).hostname}</p>
+            <p>{notice || (status === "error" && statusMessage
+              ? statusMessage
+              : `${session.user.email} · ${new URL(config.url).hostname}`)}</p>
           </div>
         </div>
       ) : (
@@ -1972,7 +1978,11 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
         </div>
         <div className="supabase-sync-dialog__auth-actions">
           <button className="unfold-dialog__primary" disabled={busy} type="submit">
-            {busy ? (mode === "signup" ? "正在创建…" : "正在验证…") : mode === "signup" ? "创建账号" : "登录并开始同步"}
+            {busyPhase === "syncing"
+              ? "正在首次同步…"
+              : busyPhase === "authenticating"
+                ? (mode === "signup" ? "正在创建账号…" : "正在登录…")
+                : mode === "signup" ? "创建账号" : "登录并开始同步"}
           </button>
         </div>
         <p className="supabase-sync-dialog__switch">
@@ -1995,6 +2005,10 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
 
       {session && (
         <div className="supabase-sync-dialog__connected-actions">
+          {status === "error" && <>
+            <button className="supabase-sync-dialog__setup-fix" onClick={copySetupSql} type="button">复制最新版 SQL</button>
+            <button className="supabase-sync-dialog__retry" onClick={onRetry} type="button">重试同步</button>
+          </>}
           <button className="supabase-sync-dialog__disconnect" onClick={onDisconnect} type="button">退出登录</button>
           <button className="supabase-sync-dialog__change-project" onClick={onResetConfig} type="button">更换 Supabase 项目</button>
         </div>
@@ -2226,6 +2240,7 @@ function App() {
     () => isShared ? null : readSupabaseSession(localStorage, supabaseConfig),
   );
   const [supabaseState, setSupabaseState] = useState("idle");
+  const [supabaseError, setSupabaseError] = useState("");
   const [worksOpen, setWorksOpen] = useState(false);
   const [exportError, setExportError] = useState("");
   const [storyPath, setStoryPath] = useState(localScene.storyPath);
@@ -2430,16 +2445,23 @@ function App() {
     supabaseQueue.current = task;
     task.then(
       () => {
-        if (syncId === supabaseSyncId.current) setSupabaseState("connected");
+        if (syncId === supabaseSyncId.current) {
+          setSupabaseError("");
+          setSupabaseState("connected");
+        }
       },
-      () => {
-        if (syncId === supabaseSyncId.current) setSupabaseState("error");
+      (error) => {
+        if (syncId === supabaseSyncId.current) {
+          setSupabaseError(error.message || "同步失败，请稍后重试。");
+          setSupabaseState("error");
+        }
       },
     );
     return task;
   }, [ensureSupabaseSession, syncWorkspace]);
 
   const syncExistingSupabase = useCallback(async (config) => {
+    setSupabaseError("");
     setSupabaseState("syncing");
     try {
       const auth = await ensureSupabaseSession(config);
@@ -2448,14 +2470,16 @@ function App() {
       setSupabaseState("connected");
     } catch (error) {
       supabaseReady.current = false;
+      setSupabaseError(error.message || "同步失败，请稍后重试。");
       setSupabaseState("error");
       throw error;
     }
   }, [ensureSupabaseSession, queueSupabaseSync]);
 
-  const connectSupabase = useCallback(async (settings) => {
+  const connectSupabase = useCallback(async (settings, onPhaseChange) => {
     const config = supabaseConfig;
     if (!config) throw new Error("云同步尚未完成配置。");
+    setSupabaseError("");
     setSupabaseState("syncing");
     try {
       const authResult = settings.mode === "signup"
@@ -2466,17 +2490,20 @@ function App() {
         return { pending: true };
       }
       const auth = authResult.session;
-      await queueSupabaseSync(config, auth, adoptCloudOnFirstSync.current);
       if (!writeSupabaseSession(localStorage, auth, config)) {
         throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
       supabaseSessionRef.current = auth;
-      supabaseReady.current = true;
+      supabaseReady.current = false;
       setSupabaseSession(auth);
+      onPhaseChange?.("syncing");
+      await queueSupabaseSync(config, auth, adoptCloudOnFirstSync.current);
+      supabaseReady.current = true;
       setSupabaseState("connected");
       return { pending: false };
     } catch (error) {
       supabaseReady.current = false;
+      setSupabaseError(error.message || "连接失败，请检查配置。");
       setSupabaseState("error");
       throw error;
     }
@@ -2491,6 +2518,7 @@ function App() {
     supabaseSessionRef.current = null;
     setSupabaseSession(null);
     setSupabaseConfig(config);
+    setSupabaseError("");
     setSupabaseState("idle");
   }, []);
 
@@ -2502,6 +2530,7 @@ function App() {
     cloudUpdatedAt.current = null;
     supabaseSessionRef.current = null;
     setSupabaseSession(null);
+    setSupabaseError("");
     setSupabaseState("idle");
   }, []);
 
@@ -2510,6 +2539,11 @@ function App() {
     localStorage.removeItem(SUPABASE_CONFIG_STORAGE_KEY);
     setSupabaseConfig(null);
   }, [disconnectSupabase]);
+
+  const retrySupabaseSync = useCallback(() => {
+    if (!supabaseConfig || !supabaseSessionRef.current) return;
+    syncExistingSupabase(supabaseConfig).catch(() => {});
+  }, [supabaseConfig, syncExistingSupabase]);
 
   useEffect(() => {
     if (isShared || !supabaseConfig || !supabaseSession || supabaseReady.current) return;
@@ -3980,8 +4014,10 @@ function App() {
           onConnect={connectSupabase}
           onDisconnect={disconnectSupabase}
           onResetConfig={resetSupabaseConfig}
+          onRetry={retrySupabaseSync}
           onSaveConfig={saveSupabaseConfig}
           status={supabaseState}
+          statusMessage={supabaseError}
         />
       )}
       {!isShared && worksOpen && (

@@ -9,6 +9,7 @@ export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
 export const SUPABASE_CONFIG_STORAGE_KEY = "unfold.supabase.config.v1";
 const IMAGE_BUCKET = "unfold-images";
 const PUBLIC_IMAGE_BUCKET = "unfold-public-images";
+const SUPABASE_REQUEST_TIMEOUT_MS = 35_000;
 // ponytail: cache uploads for this tab; add persisted hashes if refresh-time reuploads become costly.
 const uploadedImages = new Set();
 
@@ -98,8 +99,38 @@ const headers = (config, session, json = false) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
 });
 
+export async function fetchSupabaseWithTimeout(
+  fetcher,
+  url,
+  options = {},
+  timeoutMs = SUPABASE_REQUEST_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timeout;
+  try {
+    return await Promise.race([
+      fetcher(url, { ...options, signal: controller.signal }),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error("连接 Supabase 超时，请检查网络或项目状态后重试。"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
 async function responseError(response, fallback) {
   const body = await response.json().catch(() => ({}));
+  if (body.code === "57014") {
+    return new Error("数据库同步超时。请在 Supabase SQL Editor 中重新运行最新版初始化 SQL，然后重试同步。");
+  }
   return new Error(body.msg || body.message || body.error_description || fallback);
 }
 
@@ -114,7 +145,7 @@ function sessionFromResponse(data) {
 }
 
 async function authRequest(config, path, body, fetcher) {
-  const response = await fetcher(`${config.url}/auth/v1/${path}`, {
+  const response = await fetchSupabaseWithTimeout(fetcher, `${config.url}/auth/v1/${path}`, {
     method: "POST",
     headers: headers(config, null, true),
     body: JSON.stringify(body),
@@ -154,10 +185,10 @@ export async function refreshSupabaseSession(config, session, fetcher = fetch) {
 
 async function requireSuccess(response) {
   if (response.ok) return response;
-  const details = await response.text();
-  throw new Error(response.status === 404
-    ? "找不到 unfold_user_workspace 表，请先复制并运行最新建表 SQL。"
-    : `Supabase 同步失败（${response.status}）${details ? `：${details}` : ""}`);
+  if (response.status === 404) {
+    throw new Error("找不到 unfold_user_workspace 表，请先复制并运行最新建表 SQL。");
+  }
+  throw await responseError(response, `Supabase 同步失败（${response.status}）`);
 }
 
 export async function pullSupabaseWorkspace(config, session, fetcher = fetch) {
@@ -166,8 +197,8 @@ export async function pullSupabaseWorkspace(config, session, fetcher = fetch) {
 }
 
 export async function pullSupabaseWorkspaceRecord(config, session, fetcher = fetch) {
-  const response = await requireSuccess(await fetcher(
-    `${config.url}/rest/v1/unfold_user_workspace?select=payload,updated_at`,
+  const response = await requireSuccess(await fetchSupabaseWithTimeout(fetcher,
+    `${config.url}/rest/v1/unfold_user_workspace?user_id=eq.${encodeURIComponent(session.user.id)}&select=payload,updated_at&limit=1`,
     { headers: headers(config, session) },
   ));
   const row = (await response.json())[0];
@@ -179,8 +210,8 @@ export async function pullSupabaseWorkspaceRecord(config, session, fetcher = fet
 }
 
 export async function pullSupabaseWorkspaceUpdatedAt(config, session, fetcher = fetch) {
-  const response = await requireSuccess(await fetcher(
-    `${config.url}/rest/v1/unfold_user_workspace?select=updated_at`,
+  const response = await requireSuccess(await fetchSupabaseWithTimeout(fetcher,
+    `${config.url}/rest/v1/unfold_user_workspace?user_id=eq.${encodeURIComponent(session.user.id)}&select=updated_at&limit=1`,
     { headers: headers(config, session) },
   ));
   return (await response.json())[0]?.updated_at ?? null;
@@ -207,7 +238,7 @@ async function compareAndSwapSupabaseWorkspace(
   const cloudPayload = await uploadWorkspaceImages(config, session, payload, fetcher);
   const updatedAt = new Date(payload.updatedAt).toISOString();
   const existing = expectedUpdatedAt != null;
-  const response = await requireSuccess(await fetcher(
+  const response = await requireSuccess(await fetchSupabaseWithTimeout(fetcher,
     existing
       ? `${config.url}/rest/v1/unfold_user_workspace?user_id=eq.${encodeURIComponent(session.user.id)}&updated_at=eq.${encodeURIComponent(expectedUpdatedAt)}`
       : `${config.url}/rest/v1/unfold_user_workspace`,
@@ -278,7 +309,7 @@ async function requirePublicSceneSuccess(response) {
 }
 
 export async function pullPublicScene(config, id, fetcher = fetch) {
-  const response = await requirePublicSceneSuccess(await fetcher(
+  const response = await requirePublicSceneSuccess(await fetchSupabaseWithTimeout(fetcher,
     `${config.url}/rest/v1/unfold_public_scene?id=eq.${encodeURIComponent(id)}&select=payload`,
     { headers: headers(config, null) },
   ));
@@ -291,7 +322,7 @@ export async function pushPublicScene(config, session, id, payload, fetcher = fe
   if (new TextEncoder().encode(JSON.stringify(cloudPayload)).byteLength > MAX_SHARED_SCENE_BYTES) {
     throw new Error("画布超过 1.5 MB，暂时无法分享。");
   }
-  await requirePublicSceneSuccess(await fetcher(`${config.url}/rest/v1/unfold_public_scene`, {
+  await requirePublicSceneSuccess(await fetchSupabaseWithTimeout(fetcher, `${config.url}/rest/v1/unfold_public_scene`, {
     method: "POST",
     headers: {
       ...headers(config, session, true),
@@ -313,7 +344,7 @@ async function uploadPublicSceneImages(config, session, sceneId, payload, fetche
     const uploadKey = `${PUBLIC_IMAGE_BUCKET}/${storagePath}`;
     if (file.dataURL && !uploadedImages.has(uploadKey)) {
       const blob = await (await fetcher(file.dataURL)).blob();
-      const response = await fetcher(
+      const response = await fetchSupabaseWithTimeout(fetcher,
         `${config.url}/storage/v1/object/${PUBLIC_IMAGE_BUCKET}/${storagePath}`,
         {
           method: "POST",
@@ -342,7 +373,7 @@ async function downloadPublicSceneImages(config, payload, fetcher) {
       files[fileId] = file;
       continue;
     }
-    const response = await fetcher(
+    const response = await fetchSupabaseWithTimeout(fetcher,
       `${config.url}/storage/v1/object/public/${PUBLIC_IMAGE_BUCKET}/${file.storagePath}`,
       { headers: headers(config, null) },
     );
@@ -369,7 +400,7 @@ async function uploadWorkspaceImages(config, session, payload, fetcher) {
       if (file.dataURL && !uploadedImages.has(storagePath)) {
         try {
           const blob = await (await fetcher(file.dataURL)).blob();
-          const response = await fetcher(
+          const response = await fetchSupabaseWithTimeout(fetcher,
             `${config.url}/storage/v1/object/${IMAGE_BUCKET}/${storagePath}`,
             {
               method: "POST",
@@ -406,7 +437,7 @@ async function downloadWorkspaceImages(config, session, payload, fetcher) {
         files[fileId] = file;
         continue;
       }
-      const response = await fetcher(
+      const response = await fetchSupabaseWithTimeout(fetcher,
         `${config.url}/storage/v1/object/authenticated/${IMAGE_BUCKET}/${file.storagePath}`,
         { headers: headers(config, session) },
       ).catch(() => null);
