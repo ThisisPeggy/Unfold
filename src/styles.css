@@ -3488,51 +3488,19 @@ body,
 }
 
 .supabase-sync-dialog {
-  width: min(420px, calc(100vw - 32px));
+  width: min(400px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   padding: 0;
   overflow-y: auto;
-  border-radius: 14px;
+  border-radius: 10px;
 }
 
 .supabase-sync-dialog > header {
-  padding: 14px 18px;
+  padding: 12px 16px 10px 20px;
   border-bottom: 1px solid rgb(55 53 47 / 9%);
 }
 
-.supabase-sync-dialog__hero {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  padding: 18px 20px 14px;
-}
-
-.supabase-sync-dialog__icon {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--tale-muted);
-  background: var(--tale-surface-subtle);
-  margin-top: 1px;
-}
-
-.supabase-sync-dialog__icon svg {
-  width: 17px;
-  height: 17px;
-}
-
-.supabase-sync-dialog__hero h3 {
-  margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.4;
-  text-wrap: balance;
-}
-
-.supabase-sync-dialog__hero p,
+.supabase-sync-dialog__intro,
 .supabase-sync-dialog__setup p,
 .supabase-sync-dialog__form-heading p {
   margin: 0;
@@ -3542,63 +3510,62 @@ body,
   text-wrap: pretty;
 }
 
+.supabase-sync-dialog .supabase-sync-dialog__intro {
+  padding: 16px 20px 14px;
+}
+
 .supabase-sync-dialog__setup {
   margin: 0 20px;
   border: 1px solid rgb(55 53 47 / 12%);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .supabase-sync-dialog__choice {
   display: grid;
-  gap: 10px;
-  padding: 2px 20px 22px;
+  gap: 0;
+  margin: 0 12px 12px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgb(55 53 47 / 11%);
 }
 
 .supabase-sync-dialog__choice-card {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
-  min-height: 68px;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  min-height: 58px;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 0;
   color: var(--tale-ink);
-  background: #fff;
-  box-shadow: 0 0 0 1px rgb(55 53 47 / 13%);
+  background: transparent;
+  box-shadow: none;
   font: inherit;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transition-property: background-color, box-shadow, transform;
-  transition-duration: 140ms;
+  transition-property: background-color, transform;
+  transition-duration: 120ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.supabase-sync-dialog__choice-card + .supabase-sync-dialog__choice-card {
+  border-top: 1px solid rgb(55 53 47 / 9%);
 }
 
 .supabase-sync-dialog__choice-card:hover {
   background: var(--tale-surface-hover);
-  box-shadow: 0 0 0 1px rgb(55 53 47 / 20%);
 }
 
 .supabase-sync-dialog__choice-card:active {
   transform: scale(0.96);
 }
 
-.supabase-sync-dialog__choice-card.is-primary {
-  color: #fff;
-  background: var(--tale-ink);
-  box-shadow: none;
-}
-
-.supabase-sync-dialog__choice-card.is-primary:hover {
-  background: #24231f;
-  box-shadow: none;
-}
-
 .supabase-sync-dialog__choice-card strong,
 .supabase-sync-dialog__project-wait strong {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 1px;
   font-size: 13px;
   font-weight: 600;
 }
@@ -3611,21 +3578,23 @@ body,
 
 .supabase-sync-dialog__choice-icon {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   place-items: center;
-  border-radius: 8px;
-  background: rgb(55 53 47 / 7%);
-  font-size: 18px;
+  border-radius: 6px;
+  color: var(--tale-muted);
+  background: rgb(55 53 47 / 6%);
 }
 
-.supabase-sync-dialog__choice-card.is-primary .supabase-sync-dialog__choice-icon {
-  background: rgb(255 255 255 / 12%);
+.supabase-sync-dialog__choice-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
-.supabase-sync-dialog__choice > .supabase-sync-dialog__privacy {
-  padding: 4px 8px 0;
-  text-align: center;
+.supabase-sync-dialog__choice-arrow {
+  width: 16px;
+  height: 16px;
+  color: rgb(120 119 116 / 72%);
 }
 
 .supabase-sync-dialog__project-wait {
@@ -3633,6 +3602,45 @@ body,
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 10px;
   padding: 6px 24px 24px;
+}
+
+.supabase-sync-dialog__status {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin: 16px 20px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--tale-surface-subtle);
+}
+
+.supabase-sync-dialog__status > span {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #448361;
+}
+
+.supabase-sync-dialog__status.is-syncing > span {
+  background: #d59a3a;
+}
+
+.supabase-sync-dialog__status.is-error > span {
+  background: var(--tale-danger);
+}
+
+.supabase-sync-dialog__status strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.supabase-sync-dialog__status p {
+  margin-top: 1px;
+  color: var(--tale-muted);
+  font-size: 12px;
 }
 
 .supabase-sync-dialog__project-wait p {
@@ -3649,9 +3657,18 @@ body,
 }
 
 .supabase-sync-dialog__project-wait .unfold-dialog__primary {
-  min-height: 44px;
+  min-height: 40px;
   margin-top: 10px;
-  border-radius: 999px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: var(--tale-ink);
+  font: 500 13px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.supabase-sync-dialog__project-wait .unfold-dialog__primary:hover {
+  background: #292722;
 }
 
 .supabase-sync-dialog__back {
@@ -3747,7 +3764,7 @@ body,
   display: grid;
   gap: 12px;
   margin-top: 0;
-  padding: 10px 24px 24px;
+  padding: 12px 20px 20px;
 }
 
 .supabase-sync-dialog__form-heading {
@@ -3768,9 +3785,9 @@ body,
 
 .supabase-sync-dialog__input {
   position: relative;
-  height: 44px;
+  height: 40px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: 6px;
   background: #fff;
   box-shadow: inset 0 0 0 1px rgb(55 53 47 / 18%);
   transition-property: box-shadow;
@@ -3833,8 +3850,8 @@ body,
 .supabase-sync-dialog__reveal {
   right: 0;
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   place-items: center;
   border: 0;
@@ -3865,8 +3882,24 @@ body,
 
 .supabase-sync-dialog__auth-actions .unfold-dialog__primary {
   width: 100%;
-  min-height: 44px;
-  border-radius: 999px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: var(--tale-ink);
+  font: 500 13px/1 var(--tale-font);
+  cursor: pointer;
+  transition-property: background-color, transform;
+  transition-duration: 120ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.supabase-sync-dialog__auth-actions .unfold-dialog__primary:hover {
+  background: #292722;
+}
+
+.supabase-sync-dialog__auth-actions .unfold-dialog__primary:active {
+  transform: scale(0.96);
 }
 
 .supabase-sync-dialog__message {

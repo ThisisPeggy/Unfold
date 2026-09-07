@@ -1763,6 +1763,20 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
   const [setupStage, setSetupStage] = useState("choice");
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const passwordValid = password.length >= 6;
+  const dialogTitle = session
+    ? "云同步"
+    : config
+      ? (mode === "signup" ? "创建同步账号" : "登录同步账号")
+      : setupStage === "new"
+        ? "创建 Supabase 项目"
+        : setupStage === "existing" ? "配置 Supabase" : "连接 Supabase";
+  const dialogDescription = config
+    ? `项目：${new URL(config.url).hostname}`
+    : setupStage === "choice"
+      ? "作品将直接同步到你自己的 Supabase，不经过 Unfold 的服务器。"
+      : setupStage === "new"
+        ? "先在 Supabase 完成项目创建，回来后再配置连接。"
+        : "运行初始化 SQL，然后填写项目的 API 信息。";
 
   const saveConfig = (event) => {
     event.preventDefault();
@@ -1805,55 +1819,41 @@ function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect,
   };
 
   return (
-    <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title="云同步">
-      <div className="supabase-sync-dialog__hero">
-        <span className="supabase-sync-dialog__icon" aria-hidden="true">
-          <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24">
-            <path d="M7.5 18.5h9a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 6.5 9a4.75 4.75 0 0 0 1 9.5Z" />
-            <path d="m9.5 14 2.5 2.5 3.5-4" />
-          </svg>
-        </span>
-        <div>
-          <h3>{session
-            ? status === "syncing" ? "正在同步" : status === "error" ? "连接异常" : "已连接"
-            : config
-              ? (mode === "signup" ? "创建同步账号" : "登录你的 Supabase")
-              : setupStage === "new"
-                ? "先创建一个 Supabase 项目"
-                : setupStage === "existing" ? "连接已创建的项目" : "使用自己的 Supabase"}</h3>
-          <p>{session
-            ? `${session.user.email} · ${new URL(config.url).hostname}`
-            : !config
-              ? setupStage === "choice"
-                ? "从创建新项目开始；如果已经有项目，也可以直接连接。"
-                : setupStage === "new"
-                  ? "先完成项目创建，创建好以后再填写连接信息。"
-                  : "初始化数据库，然后填写这个项目的连接信息。"
-              : mode === "signup"
-              ? "使用邮箱创建账号，在不同设备间同步作品。"
-              : "用该项目中的账号登录，换设备也能继续编辑。"}</p>
+    <UnfoldDialog className="supabase-sync-dialog" onClose={onClose} title={dialogTitle}>
+      {session ? (
+        <div className={`supabase-sync-dialog__status is-${status}`}>
+          <span aria-hidden="true" />
+          <div>
+            <strong>{status === "syncing" ? "正在同步" : status === "error" ? "连接异常" : "已连接"}</strong>
+            <p>{session.user.email} · {new URL(config.url).hostname}</p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className="supabase-sync-dialog__intro">{dialogDescription}</p>
+      )}
 
       {!session && !config && setupStage === "choice" && (
         <div className="supabase-sync-dialog__choice">
           <a
-            className="supabase-sync-dialog__choice-card is-primary"
+            className="supabase-sync-dialog__choice-card"
             href="https://supabase.com/dashboard/new"
             onClick={() => setSetupStage("new")}
             rel="noreferrer"
             target="_blank"
           >
-            <span className="supabase-sync-dialog__choice-icon" aria-hidden="true">＋</span>
-            <span><strong>创建新的 Supabase 项目</strong><small>推荐第一次使用时选择</small></span>
-            <span aria-hidden="true">↗</span>
+            <span className="supabase-sync-dialog__choice-icon" aria-hidden="true">
+              <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M12 3 5 7v10l7 4 7-4V7l-7-4Z" /><path d="M9 12h6M12 9v6" /></svg>
+            </span>
+            <span><strong>创建 Supabase 项目</strong><small>第一次使用，从这里开始</small></span>
+            <svg className="supabase-sync-dialog__choice-arrow" aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
           </a>
           <button className="supabase-sync-dialog__choice-card" onClick={() => setSetupStage("existing")} type="button">
-            <span className="supabase-sync-dialog__choice-icon" aria-hidden="true">✓</span>
-            <span><strong>我已经创建了项目</strong><small>继续初始化并填写项目信息</small></span>
-            <span aria-hidden="true">→</span>
+            <span className="supabase-sync-dialog__choice-icon" aria-hidden="true">
+              <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></svg>
+            </span>
+            <span><strong>连接已有项目</strong><small>项目已经创建，继续配置</small></span>
+            <svg className="supabase-sync-dialog__choice-arrow" aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
           </button>
-          <small className="supabase-sync-dialog__privacy">Unfold 不会代你创建或托管项目，数据由你自己的 Supabase 保存。</small>
         </div>
       )}
 
