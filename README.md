@@ -47,30 +47,19 @@ npm run test:browser
 
 ## 配置云同步
 
-Unfold 不配置云服务也可以使用，作品默认保存在当前浏览器中。需要跨设备同步和发布链接时，可以连接 Supabase。
+Unfold 不配置云服务也可以使用，作品默认保存在当前浏览器中。需要跨设备同步和发布链接时，每位用户可以连接自己的 Supabase 项目，数据不会进入 Unfold 开发者的数据库。
 
-1. 复制环境变量文件：
+1. 在 Supabase 创建一个自己的项目。
 
-   ```bash
-   cp .env.example .env.local
-   ```
-
-2. 填写 Supabase 项目地址和 Publishable Key：
-
-   ```env
-   VITE_SUPABASE_URL=https://xxxx.supabase.co
-   VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-   ```
-
-3. 输出建表 SQL，并在 Supabase SQL Editor 中执行：
+2. 在 Unfold 主菜单打开“云同步”，复制建表 SQL，并在该项目的 SQL Editor 中执行。也可以从源码输出同一份 SQL：
 
    ```bash
    npm run setup:supabase
    ```
 
-4. 重新启动开发服务，在 Unfold 中注册或登录。
+3. 在云同步窗口填写该项目的 Project URL 和 Publishable Key，然后创建或登录该项目中的账号。
 
-云同步最多保存 10 个作品，用于多设备继续编辑，不是多人实时共同编辑。
+作品数量不由 Unfold 限制，实际容量取决于用户自己的 Supabase 套餐和浏览器存储空间。云同步用于多设备继续编辑，不是多人实时共同编辑。
 
 同步发生版本冲突时会保留被替换的版本，可从主菜单“导出同步冲突副本”导出 `.unfold` 后重新导入。
 

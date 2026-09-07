@@ -3548,6 +3548,128 @@ body,
   border-radius: 8px;
 }
 
+.supabase-sync-dialog__choice {
+  display: grid;
+  gap: 10px;
+  padding: 2px 20px 22px;
+}
+
+.supabase-sync-dialog__choice-card {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  min-height: 68px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--tale-ink);
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(55 53 47 / 13%);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition-property: background-color, box-shadow, transform;
+  transition-duration: 140ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.supabase-sync-dialog__choice-card:hover {
+  background: var(--tale-surface-hover);
+  box-shadow: 0 0 0 1px rgb(55 53 47 / 20%);
+}
+
+.supabase-sync-dialog__choice-card:active {
+  transform: scale(0.96);
+}
+
+.supabase-sync-dialog__choice-card.is-primary {
+  color: #fff;
+  background: var(--tale-ink);
+  box-shadow: none;
+}
+
+.supabase-sync-dialog__choice-card.is-primary:hover {
+  background: #24231f;
+  box-shadow: none;
+}
+
+.supabase-sync-dialog__choice-card strong,
+.supabase-sync-dialog__project-wait strong {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.supabase-sync-dialog__choice-card small {
+  display: block;
+  color: currentColor;
+  opacity: 0.66;
+}
+
+.supabase-sync-dialog__choice-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgb(55 53 47 / 7%);
+  font-size: 18px;
+}
+
+.supabase-sync-dialog__choice-card.is-primary .supabase-sync-dialog__choice-icon {
+  background: rgb(255 255 255 / 12%);
+}
+
+.supabase-sync-dialog__choice > .supabase-sync-dialog__privacy {
+  padding: 4px 8px 0;
+  text-align: center;
+}
+
+.supabase-sync-dialog__project-wait {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 24px 24px;
+}
+
+.supabase-sync-dialog__project-wait p {
+  margin: 0;
+  color: var(--tale-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.supabase-sync-dialog__project-wait .unfold-dialog__primary,
+.supabase-sync-dialog__project-wait .supabase-sync-dialog__back {
+  grid-column: 1 / -1;
+}
+
+.supabase-sync-dialog__project-wait .unfold-dialog__primary {
+  min-height: 44px;
+  margin-top: 10px;
+  border-radius: 999px;
+}
+
+.supabase-sync-dialog__back {
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  color: var(--tale-muted);
+  background: transparent;
+  font: 500 12px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.supabase-sync-dialog__back:hover {
+  color: var(--tale-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .supabase-sync-dialog__setup section {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
@@ -3677,6 +3799,10 @@ body,
 
 .supabase-sync-dialog__input input::placeholder {
   color: rgb(120 119 116 / 62%);
+}
+
+.supabase-sync-dialog__input--plain input {
+  padding-inline: 16px;
 }
 
 .supabase-sync-dialog__input-icon,
@@ -3838,9 +3964,9 @@ body,
 }
 
 .supabase-sync-dialog__disconnect {
-  width: calc(100% - 40px);
+  width: 100%;
   min-height: 40px;
-  margin: 0 20px 20px;
+  margin: 0;
   border: 0;
   border-radius: 8px;
   color: var(--tale-ink);
@@ -3855,6 +3981,28 @@ body,
 
 .supabase-sync-dialog__disconnect:active {
   transform: scale(0.96);
+}
+
+.supabase-sync-dialog__connected-actions {
+  display: grid;
+  gap: 8px;
+  margin: 0 20px 20px;
+}
+
+.supabase-sync-dialog__change-project {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  color: var(--tale-muted);
+  background: transparent;
+  font: 500 12px/1 var(--tale-font);
+  cursor: pointer;
+}
+
+.supabase-sync-dialog__change-project:hover {
+  color: var(--tale-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 @media (max-width: 560px) {

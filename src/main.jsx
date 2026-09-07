@@ -17,6 +17,7 @@ import {
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import "./styles.css";
+import SUPABASE_SETUP_SQL from "../supabase/setup.sql?raw";
 import AssistantMascot from "./AssistantMascot.jsx";
 import StoryCameraPreview from "./StoryCameraPreview.jsx";
 import StoryPathPanel from "./StoryPathEditor.jsx";
@@ -47,17 +48,21 @@ import {
   WORKSPACE_UPDATED_STORAGE_KEY,
 } from "./storage.js";
 import {
+  addSupabaseConfigToUrl,
+  normalizeSupabaseConfig,
   pullPublicScene,
   pullSupabaseWorkspaceUpdatedAt,
   pushPublicScene,
+  readSupabaseConfig,
   readSupabaseSession,
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
   syncSupabaseWorkspace,
+  SUPABASE_CONFIG_STORAGE_KEY,
   SUPABASE_SESSION_STORAGE_KEY,
-  SUPABASE_WORK_LIMIT,
-  supabaseConfigFromEnv,
+  supabaseConfigFromHash,
+  writeSupabaseConfig,
   writeSupabaseSession,
 } from "./supabase-sync.js";
 import { missingArrowhead } from "./tool-state.js";
@@ -1745,7 +1750,9 @@ function ExportDialog({ error, onClose, onExport }) {
   );
 }
 
-function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconnect, status }) {
+function SupabaseSyncDialog({ config, session, onClose, onConnect, onDisconnect, onResetConfig, onSaveConfig, status }) {
+  const [projectUrl, setProjectUrl] = useState(config?.url ?? "");
+  const [publishableKey, setPublishableKey] = useState(config?.key ?? "");
   const [email, setEmail] = useState(session?.user?.email ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -1753,8 +1760,31 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState("signin");
+  const [setupStage, setSetupStage] = useState("choice");
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const passwordValid = password.length >= 6;
+
+  const saveConfig = (event) => {
+    event.preventDefault();
+    setError("");
+    try {
+      onSaveConfig({ url: projectUrl, key: publishableKey });
+    } catch (configError) {
+      setError(configError.message || "Supabase 配置无效。");
+    }
+  };
+
+  const copySetupSql = async () => {
+    try {
+      await navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+      setNotice("建表 SQL 已复制。");
+      setError("");
+    } catch {
+      window.prompt("请复制以下建表 SQL", SUPABASE_SETUP_SQL);
+      setNotice("请复制弹出窗口中的建表 SQL。");
+      setError("");
+    }
+  };
 
   const connect = async (event) => {
     event.preventDefault();
@@ -1786,20 +1816,97 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
         <div>
           <h3>{session
             ? status === "syncing" ? "正在同步" : status === "error" ? "连接异常" : "已连接"
-            : mode === "signup" ? "创建账号" : "登录后同步作品"}</h3>
+            : config
+              ? (mode === "signup" ? "创建同步账号" : "登录你的 Supabase")
+              : setupStage === "new"
+                ? "先创建一个 Supabase 项目"
+                : setupStage === "existing" ? "连接已创建的项目" : "使用自己的 Supabase"}</h3>
           <p>{session
-            ? session.user.email
-            : mode === "signup"
+            ? `${session.user.email} · ${new URL(config.url).hostname}`
+            : !config
+              ? setupStage === "choice"
+                ? "从创建新项目开始；如果已经有项目，也可以直接连接。"
+                : setupStage === "new"
+                  ? "先完成项目创建，创建好以后再填写连接信息。"
+                  : "初始化数据库，然后填写这个项目的连接信息。"
+              : mode === "signup"
               ? "使用邮箱创建账号，在不同设备间同步作品。"
-              : "换一台设备登录，也能继续编辑。无需同步时可直接使用画布。"}</p>
+              : "用该项目中的账号登录，换设备也能继续编辑。"}</p>
         </div>
       </div>
 
-      {!session && !available && (
-        <p className="supabase-sync-dialog__unavailable" role="alert">云同步尚未完成配置。</p>
+      {!session && !config && setupStage === "choice" && (
+        <div className="supabase-sync-dialog__choice">
+          <a
+            className="supabase-sync-dialog__choice-card is-primary"
+            href="https://supabase.com/dashboard/new"
+            onClick={() => setSetupStage("new")}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <span className="supabase-sync-dialog__choice-icon" aria-hidden="true">＋</span>
+            <span><strong>创建新的 Supabase 项目</strong><small>推荐第一次使用时选择</small></span>
+            <span aria-hidden="true">↗</span>
+          </a>
+          <button className="supabase-sync-dialog__choice-card" onClick={() => setSetupStage("existing")} type="button">
+            <span className="supabase-sync-dialog__choice-icon" aria-hidden="true">✓</span>
+            <span><strong>我已经创建了项目</strong><small>继续初始化并填写项目信息</small></span>
+            <span aria-hidden="true">→</span>
+          </button>
+          <small className="supabase-sync-dialog__privacy">Unfold 不会代你创建或托管项目，数据由你自己的 Supabase 保存。</small>
+        </div>
       )}
 
-      {!session && available && <form onSubmit={connect}>
+      {!session && !config && setupStage === "new" && (
+        <div className="supabase-sync-dialog__project-wait">
+          <span className="supabase-sync-dialog__step">1</span>
+          <div>
+            <strong>在新标签页完成项目创建</strong>
+            <p>项目通常需要一点时间准备。看到项目控制台后，再回到这里继续。</p>
+          </div>
+          <button className="unfold-dialog__primary" onClick={() => setSetupStage("existing")} type="button">项目创建好了，继续</button>
+          <button className="supabase-sync-dialog__back" onClick={() => setSetupStage("choice")} type="button">返回</button>
+        </div>
+      )}
+
+      {!session && !config && setupStage === "existing" && <>
+        <div className="supabase-sync-dialog__setup">
+          <section>
+            <span className="supabase-sync-dialog__step">1</span>
+            <p><strong>初始化这个项目</strong>复制 SQL，在 Supabase SQL Editor 中运行一次。</p>
+            <button className="supabase-sync-dialog__sql" onClick={copySetupSql} type="button">复制 SQL</button>
+          </section>
+        </div>
+        <form onSubmit={saveConfig}>
+          <div className="supabase-sync-dialog__form-heading">
+            <strong>填写项目信息</strong>
+            <p>运行 SQL 后，在 Project Settings → API 中找到以下信息。</p>
+          </div>
+          <label className="supabase-sync-dialog__field" htmlFor="supabase-project-url">
+            <span>Project URL</span>
+            <div className={`supabase-sync-dialog__input supabase-sync-dialog__input--plain ${error ? "is-error" : ""}`}>
+              <input id="supabase-project-url" onChange={(event) => setProjectUrl(event.target.value)} placeholder="https://xxxx.supabase.co" required type="url" value={projectUrl} />
+            </div>
+          </label>
+          <label className="supabase-sync-dialog__field" htmlFor="supabase-publishable-key">
+            <span>Publishable Key</span>
+            <div className={`supabase-sync-dialog__input supabase-sync-dialog__input--plain ${error ? "is-error" : ""}`}>
+              <input autoComplete="off" id="supabase-publishable-key" onChange={(event) => setPublishableKey(event.target.value)} placeholder="sb_publishable_…" required type="password" value={publishableKey} />
+            </div>
+          </label>
+          <div className="supabase-sync-dialog__message" id="supabase-config-message">
+            {notice && <p className="supabase-sync-dialog__notice" role="status">{notice}</p>}
+            {error && <p className="supabase-sync-dialog__error" role="alert">{error}</p>}
+          </div>
+          <div className="supabase-sync-dialog__auth-actions">
+            <button className="unfold-dialog__primary" type="submit">连接这个项目</button>
+          </div>
+          <button className="supabase-sync-dialog__back" onClick={() => setSetupStage("choice")} type="button">返回选择</button>
+          <small className="supabase-sync-dialog__privacy">配置只保存在当前浏览器；Publishable Key 可以安全地用于前端。</small>
+        </form>
+      </>}
+
+      {!session && config && <form onSubmit={connect}>
         <label className="supabase-sync-dialog__field" htmlFor="supabase-email">
           <span>邮箱</span>
           <div className={`supabase-sync-dialog__input ${error ? "is-error" : ""}`}>
@@ -1883,12 +1990,14 @@ function SupabaseSyncDialog({ available, session, onClose, onConnect, onDisconne
           </button>
         </p>
         <small className="supabase-sync-dialog__privacy">登录仅用于云同步，本地画布始终可以直接使用。</small>
+        <button className="supabase-sync-dialog__change-project" onClick={onResetConfig} type="button">更换 Supabase 项目</button>
       </form>}
 
       {session && (
-        <button className="supabase-sync-dialog__disconnect" onClick={onDisconnect} type="button">
-          退出并断开同步
-        </button>
+        <div className="supabase-sync-dialog__connected-actions">
+          <button className="supabase-sync-dialog__disconnect" onClick={onDisconnect} type="button">退出登录</button>
+          <button className="supabase-sync-dialog__change-project" onClick={onResetConfig} type="button">更换 Supabase 项目</button>
+        </div>
       )}
     </UnfoldDialog>
   );
@@ -2069,6 +2178,7 @@ function App() {
   );
   const sharedSceneId = useMemo(() => sceneIdFromPath(location.pathname), []);
   const isShared = Boolean(sharedPayload || sharedSceneId);
+  const sharedSupabaseConfig = useMemo(() => supabaseConfigFromHash(location.hash), []);
   const workspace = useMemo(
     () => initializeWorkStorage(localStorage, createId),
     [],
@@ -2109,9 +2219,11 @@ function App() {
   const [clearOpen, setClearOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [supabaseOpen, setSupabaseOpen] = useState(false);
-  const supabaseConfig = useMemo(() => supabaseConfigFromEnv(import.meta.env), []);
+  const [supabaseConfig, setSupabaseConfig] = useState(
+    () => isShared ? sharedSupabaseConfig : readSupabaseConfig(localStorage),
+  );
   const [supabaseSession, setSupabaseSession] = useState(
-    () => isShared ? null : readSupabaseSession(localStorage),
+    () => isShared ? null : readSupabaseSession(localStorage, supabaseConfig),
   );
   const [supabaseState, setSupabaseState] = useState("idle");
   const [worksOpen, setWorksOpen] = useState(false);
@@ -2273,7 +2385,7 @@ function App() {
     if (!current) throw new Error("请先登录 Supabase。");
     if (current.expiresAt > Date.now() + 60_000) return current;
     const refreshed = await refreshSupabaseSession(config, current);
-    if (!writeSupabaseSession(localStorage, refreshed)) {
+    if (!writeSupabaseSession(localStorage, refreshed, config)) {
       throw new Error("无法在浏览器中保存登录状态。");
     }
     supabaseSessionRef.current = refreshed;
@@ -2355,7 +2467,7 @@ function App() {
       }
       const auth = authResult.session;
       await queueSupabaseSync(config, auth, adoptCloudOnFirstSync.current);
-      if (!writeSupabaseSession(localStorage, auth)) {
+      if (!writeSupabaseSession(localStorage, auth, config)) {
         throw new Error("无法在浏览器中保存 Supabase 登录信息。");
       }
       supabaseSessionRef.current = auth;
@@ -2370,6 +2482,18 @@ function App() {
     }
   }, [queueSupabaseSync, supabaseConfig]);
 
+  const saveSupabaseConfig = useCallback((settings) => {
+    const config = normalizeSupabaseConfig(settings);
+    if (!writeSupabaseConfig(localStorage, config)) {
+      throw new Error("无法在浏览器中保存 Supabase 配置。");
+    }
+    localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
+    supabaseSessionRef.current = null;
+    setSupabaseSession(null);
+    setSupabaseConfig(config);
+    setSupabaseState("idle");
+  }, []);
+
   const disconnectSupabase = useCallback(() => {
     window.clearTimeout(supabaseTimer.current);
     localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
@@ -2380,6 +2504,12 @@ function App() {
     setSupabaseSession(null);
     setSupabaseState("idle");
   }, []);
+
+  const resetSupabaseConfig = useCallback(() => {
+    disconnectSupabase();
+    localStorage.removeItem(SUPABASE_CONFIG_STORAGE_KEY);
+    setSupabaseConfig(null);
+  }, [disconnectSupabase]);
 
   useEffect(() => {
     if (isShared || !supabaseConfig || !supabaseSession || supabaseReady.current) return;
@@ -2450,10 +2580,6 @@ function App() {
       excalidrawAPI?.resetScene();
       excalidrawAPI?.updateScene({ elements: [], appState });
       persistScene(nextScene);
-      return;
-    }
-    if (works.length >= SUPABASE_WORK_LIMIT) {
-      window.alert(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除一个作品再新建。`);
       return;
     }
     if (!await writeScene(localStorage, sceneKeyForWork(activeWorkId.current), latestScene.current)) {
@@ -2935,7 +3061,10 @@ function App() {
         throw new Error("Publishing credentials could not be saved");
       }
       if (workId === activeWorkId.current) publication.current = current;
-      const url = new URL(`/s/${current.id}`, location.origin);
+      const url = addSupabaseConfigToUrl(
+        new URL(`/s/${current.id}`, location.origin),
+        supabaseConfig,
+      );
       try {
         await navigator.clipboard.writeText(url.href);
         setPublishState("copied");
@@ -3093,10 +3222,6 @@ function App() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (supabaseSessionRef.current && works.length >= SUPABASE_WORK_LIMIT) {
-      window.alert(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除一个作品再导入。`);
-      return;
-    }
     let imported;
     try {
       const contents = await file.text();
@@ -3849,11 +3974,13 @@ function App() {
       )}
       {!preview && supabaseOpen && (
         <SupabaseSyncDialog
-          available={Boolean(supabaseConfig)}
+          config={supabaseConfig}
           session={supabaseSession}
           onClose={() => setSupabaseOpen(false)}
           onConnect={connectSupabase}
           onDisconnect={disconnectSupabase}
+          onResetConfig={resetSupabaseConfig}
+          onSaveConfig={saveSupabaseConfig}
           status={supabaseState}
         />
       )}

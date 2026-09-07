@@ -2,17 +2,21 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  addSupabaseConfigToUrl,
   normalizeSupabaseConfig,
   pullPublicScene,
   pullSupabaseWorkspace,
   pullSupabaseWorkspaceUpdatedAt,
   pushPublicScene,
+  readSupabaseConfig,
+  readSupabaseSession,
   refreshSupabaseSession,
   signInSupabase,
   signUpSupabase,
   syncSupabaseWorkspace,
-  SUPABASE_WORK_LIMIT,
-  supabaseConfigFromEnv,
+  supabaseConfigFromHash,
+  writeSupabaseConfig,
+  writeSupabaseSession,
 } from "../src/supabase-sync.js";
 
 const SUPABASE_SETUP_SQL = await readFile(
@@ -37,6 +41,14 @@ const session = {
   user: { id: authResponse.user.id, email: authResponse.user.email },
 };
 
+const memoryStorage = () => {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+};
+
 test("accepts browser-safe Supabase settings and rejects secret keys", () => {
   assert.deepEqual(normalizeSupabaseConfig({
     url: " https://example.supabase.co/path ",
@@ -52,11 +64,27 @@ test("accepts browser-safe Supabase settings and rejects secret keys", () => {
   assert.match(SUPABASE_SETUP_SQL, /storage\.buckets/);
   assert.match(SUPABASE_SETUP_SQL, /unfold_public_scene/);
   assert.match(SUPABASE_SETUP_SQL, /to anon/);
-  assert.deepEqual(supabaseConfigFromEnv({
-    VITE_SUPABASE_URL: config.url,
-    VITE_SUPABASE_PUBLISHABLE_KEY: config.key,
-  }), config);
-  assert.equal(supabaseConfigFromEnv({}), null);
+});
+
+test("stores a personal Supabase config and binds its session to that project", () => {
+  const storage = memoryStorage();
+  assert.equal(writeSupabaseConfig(storage, config), true);
+  assert.deepEqual(readSupabaseConfig(storage), config);
+  assert.equal(writeSupabaseSession(storage, session, config), true);
+  assert.deepEqual(readSupabaseSession(storage, config), {
+    ...session,
+    projectUrl: config.url,
+  });
+  assert.equal(readSupabaseSession(storage, {
+    ...config,
+    url: "https://another.supabase.co",
+  }), null);
+});
+
+test("puts the personal Supabase config in public share links", () => {
+  const url = addSupabaseConfigToUrl(new URL("https://unfold.example/s/my-work"), config);
+  assert.deepEqual(supabaseConfigFromHash(url.hash), config);
+  assert.equal(url.pathname, "/s/my-work");
 });
 
 test("publishes a scene for anonymous one-time reads", async () => {
@@ -198,23 +226,20 @@ test("pulls the signed-in user's workspace", async () => {
   assert.equal(call.options.headers.Authorization, "Bearer access");
 });
 
-test("rejects workspaces above the cloud work limit before uploading", async () => {
+test("syncs more than ten works to a personal Supabase project", async () => {
   const payload = {
     version: 1,
     updatedAt: 123,
-    works: Array.from({ length: SUPABASE_WORK_LIMIT + 1 }, (_, index) => ({ id: `${index}` })),
+    works: Array.from({ length: 25 }, (_, index) => ({ id: `${index}` })),
     scenes: {},
   };
   let uploaded = false;
-  await assert.rejects(
-    syncSupabaseWorkspace(config, session, payload, { fetcher: async (_url, options = {}) => {
-      if (!options.method) return new Response("[]", { status: 200 });
-      uploaded = true;
-      return new Response("[{}]", { status: 201 });
-    } }),
-    /最多保存 10 个作品/,
-  );
-  assert.equal(uploaded, false);
+  await syncSupabaseWorkspace(config, session, payload, { fetcher: async (_url, options = {}) => {
+    if (!options.method) return new Response("[]", { status: 200 });
+    uploaded = true;
+    return new Response("[{}]", { status: 201 });
+  } });
+  assert.equal(uploaded, true);
 });
 
 test("retries a concurrent browser write and preserves both browsers' latest works", async () => {

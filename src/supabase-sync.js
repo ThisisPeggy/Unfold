@@ -6,7 +6,7 @@ import {
 import { documentAppState } from "./scene-state.js";
 
 export const SUPABASE_SESSION_STORAGE_KEY = "unfold.supabase.session.v1";
-export const SUPABASE_WORK_LIMIT = 10;
+export const SUPABASE_CONFIG_STORAGE_KEY = "unfold.supabase.config.v1";
 const IMAGE_BUCKET = "unfold-images";
 const PUBLIC_IMAGE_BUCKET = "unfold-public-images";
 // ponytail: cache uploads for this tab; add persisted hashes if refresh-time reuploads become costly.
@@ -22,15 +22,42 @@ export function normalizeSupabaseConfig({ url = "", key = "" }) {
   return { url: parsed.origin, key: normalizedKey };
 }
 
-export function supabaseConfigFromEnv(env = {}) {
+export function readSupabaseConfig(storage) {
+  try {
+    return normalizeSupabaseConfig(JSON.parse(storage.getItem(SUPABASE_CONFIG_STORAGE_KEY)));
+  } catch {
+    return null;
+  }
+}
+
+export function writeSupabaseConfig(storage, config) {
+  try {
+    storage.setItem(SUPABASE_CONFIG_STORAGE_KEY, JSON.stringify(normalizeSupabaseConfig(config)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function supabaseConfigFromHash(hash = "") {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
   try {
     return normalizeSupabaseConfig({
-      url: env.VITE_SUPABASE_URL,
-      key: env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      url: params.get("supabaseUrl") ?? "",
+      key: params.get("supabaseKey") ?? "",
     });
   } catch {
     return null;
   }
+}
+
+export function addSupabaseConfigToUrl(url, config) {
+  const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const normalized = normalizeSupabaseConfig(config);
+  params.set("supabaseUrl", normalized.url);
+  params.set("supabaseKey", normalized.key);
+  url.hash = params.toString();
+  return url;
 }
 
 function normalizeSession(value) {
@@ -43,17 +70,22 @@ function normalizeSession(value) {
   return value;
 }
 
-export function readSupabaseSession(storage) {
+export function readSupabaseSession(storage, config) {
   try {
-    return normalizeSession(JSON.parse(storage.getItem(SUPABASE_SESSION_STORAGE_KEY)));
+    const saved = JSON.parse(storage.getItem(SUPABASE_SESSION_STORAGE_KEY));
+    if (!config || saved?.projectUrl !== config.url) return null;
+    return normalizeSession(saved);
   } catch {
     return null;
   }
 }
 
-export function writeSupabaseSession(storage, session) {
+export function writeSupabaseSession(storage, session, config) {
   try {
-    storage.setItem(SUPABASE_SESSION_STORAGE_KEY, JSON.stringify(session));
+    storage.setItem(SUPABASE_SESSION_STORAGE_KEY, JSON.stringify({
+      ...session,
+      projectUrl: normalizeSupabaseConfig(config).url,
+    }));
     return true;
   } catch {
     return false;
@@ -172,9 +204,6 @@ async function compareAndSwapSupabaseWorkspace(
   expectedUpdatedAt,
   fetcher,
 ) {
-  if ((payload.works?.length ?? Object.keys(payload.scenes ?? {}).length) > SUPABASE_WORK_LIMIT) {
-    throw new Error(`云同步最多保存 ${SUPABASE_WORK_LIMIT} 个作品。请先删除不需要的作品。`);
-  }
   const cloudPayload = await uploadWorkspaceImages(config, session, payload, fetcher);
   const updatedAt = new Date(payload.updatedAt).toISOString();
   const existing = expectedUpdatedAt != null;
